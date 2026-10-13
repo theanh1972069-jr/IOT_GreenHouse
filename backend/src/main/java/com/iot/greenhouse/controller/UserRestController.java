@@ -36,6 +36,12 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class UserRestController {
 
+    private static final Map<String, String> ROLE_DESCRIPTIONS = Map.of(
+            "ADMIN", "System administrator",
+            "OPERATOR", "Greenhouse monitoring and operations",
+            "VIEWER", "Read-only greenhouse access",
+            "USER", "Legacy standard user");
+
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
@@ -87,6 +93,7 @@ public class UserRestController {
         String email = request.email() == null ? "" : request.email().trim();
         String fullName = request.fullName() == null ? "" : request.fullName().trim();
         String password = request.password() == null ? "" : request.password();
+        String roleName = request.role() == null ? "USER" : request.role().trim().toUpperCase(Locale.ROOT);
 
         if (!username.matches("[A-Za-z0-9._-]{3,50}")) {
             return ResponseEntity.badRequest().body(new ApiError("Tên đăng nhập cần từ 3 đến 50 ký tự, chỉ gồm chữ, số, dấu chấm, gạch dưới hoặc gạch ngang."));
@@ -100,6 +107,9 @@ public class UserRestController {
         if (fullName.length() > 150) {
             return ResponseEntity.badRequest().body(new ApiError("Họ tên không được vượt quá 150 ký tự."));
         }
+        if (!ROLE_DESCRIPTIONS.containsKey(roleName)) {
+            return ResponseEntity.badRequest().body(new ApiError("Vai trò tài khoản không hợp lệ."));
+        }
         if (userRepository.existsByUsernameIgnoreCase(username)) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("Tên đăng nhập đã được sử dụng."));
         }
@@ -107,10 +117,10 @@ public class UserRestController {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("Email đã được sử dụng."));
         }
 
-        Role userRole = roleRepository.findByName("USER")
+        Role userRole = roleRepository.findByName(roleName)
                 .orElseGet(() -> roleRepository.save(Role.builder()
-                        .name("USER")
-                        .description("Standard user")
+                .name(roleName)
+                .description(ROLE_DESCRIPTIONS.get(roleName))
                         .build()));
         User user = userRepository.save(User.builder()
                 .username(username)
@@ -122,7 +132,7 @@ public class UserRestController {
                 .build());
 
         auditLogService.record(creator, httpRequest, "USER_CREATE", "User",
-                String.valueOf(user.getId()), Map.of("username", username, "email", email));
+            String.valueOf(user.getId()), Map.of("username", username, "email", email, "role", roleName));
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toUserView(user));
     }
@@ -137,7 +147,7 @@ public class UserRestController {
     public record UserView(Long id, String username, String email, String fullName, String status,
                            List<String> roles, ZonedDateTime createdAt) {}
 
-    public record CreateUserRequest(String username, String email, String password, String fullName) {}
+    public record CreateUserRequest(String username, String email, String password, String fullName, String role) {}
 
     public record ApiError(String message) {}
 }

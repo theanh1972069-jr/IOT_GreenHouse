@@ -32,8 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <ul>
  *   <li>device registration used to bind the JPA entity straight from the request
  *       body, which left {@code status} null and made every insert fail with 500;</li>
- *   <li>only {@code POST /api/users} checked for the ADMIN role, so any logged-in
- *       user could list all users and mutate devices, configs and alerts.</li>
+ *   <li>admin-only API routes must reject authenticated users without the ADMIN role.</li>
  * </ul>
  */
 @SpringBootTest
@@ -65,6 +64,7 @@ class DeviceAndAuthorizationRestControllerTest extends TestDatabase {
 
     private String adminToken;
     private String memberToken;
+        private String operatorToken;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -74,9 +74,12 @@ class DeviceAndAuthorizationRestControllerTest extends TestDatabase {
                 .orElseGet(() -> roleRepository.save(Role.builder().name("ADMIN").description("admin").build()));
         Role userRole = roleRepository.findByName("USER")
                 .orElseGet(() -> roleRepository.save(Role.builder().name("USER").description("user").build()));
+        Role operatorRole = roleRepository.findByName("OPERATOR")
+                .orElseGet(() -> roleRepository.save(Role.builder().name("OPERATOR").description("operator").build()));
 
         adminToken = login("it-admin", adminRole);
         memberToken = login("it-member", userRole);
+        operatorToken = login("it-operator", operatorRole);
     }
 
     private String login(String prefix, Role role) throws Exception {
@@ -233,6 +236,28 @@ class DeviceAndAuthorizationRestControllerTest extends TestDatabase {
                 .andExpect(status().isForbidden());
     }
 
+        @Test
+        void nonAdminCannotReadAuditLogs() throws Exception {
+                mockMvc.perform(get("/api/audit-logs").header("Authorization", "Bearer " + memberToken))
+                                .andExpect(status().isForbidden());
+        }
+
+            @Test
+            void operatorCanHandleAlertsButCannotManageUsers() throws Exception {
+                mockMvc.perform(post("/api/alerts/{id}/acknowledge", 999999L)
+                                .header("Authorization", "Bearer " + operatorToken))
+                        .andExpect(status().isNotFound());
+
+                mockMvc.perform(post("/api/alerts/{id}/resolve", 999999L)
+                                .header("Authorization", "Bearer " + operatorToken))
+                        .andExpect(status().isNotFound());
+
+                mockMvc.perform(get("/api/users").header("Authorization", "Bearer " + operatorToken))
+                        .andExpect(status().isForbidden());
+                mockMvc.perform(get("/api/audit-logs").header("Authorization", "Bearer " + operatorToken))
+                        .andExpect(status().isForbidden());
+            }
+
     @Test
     void nonAdminCannotChangeDeviceStatusOrConfigOrAlerts() throws Exception {
         String deviceId = uniqueDeviceId();
@@ -272,6 +297,45 @@ class DeviceAndAuthorizationRestControllerTest extends TestDatabase {
                 .andExpect(jsonPath("$.totalElements").isNumber())
                 .andExpect(jsonPath("$.page").value(0));
     }
+
+        @Test
+        void adminCanCreateUserWithSelectedRole() throws Exception {
+                String username = "it-operator-" + UUID.randomUUID().toString().substring(0, 8);
+                mockMvc.perform(post("/api/users")
+                                                .header("Authorization", "Bearer " + adminToken)
+                                                .contentType(MediaType.APPLICATION_JSON)
+                                                .content(objectMapper.writeValueAsString(Map.of(
+                                                                "username", username,
+                                                                "email", username + "@it.local",
+                                                                "password", "Passw0rd!23",
+                                                                "fullName", "IT Operator",
+                                                                "role", "OPERATOR"))))
+                                .andExpect(status().isCreated())
+                                .andExpect(jsonPath("$.roles[0]").value("OPERATOR"));
+        }
+
+        @Test
+        void rejectsUnknownAccountRole() throws Exception {
+                String username = "it-invalid-role-" + UUID.randomUUID().toString().substring(0, 8);
+                mockMvc.perform(post("/api/users")
+                                                .header("Authorization", "Bearer " + adminToken)
+                                                .contentType(MediaType.APPLICATION_JSON)
+                                                .content(objectMapper.writeValueAsString(Map.of(
+                                                                "username", username,
+                                                                "email", username + "@it.local",
+                                                                "password", "Passw0rd!23",
+                                                                "fullName", "IT Invalid Role",
+                                                                "role", "ROOT"))))
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.message").isNotEmpty());
+        }
+
+        @Test
+        void adminCanReadAuditLogs() throws Exception {
+                mockMvc.perform(get("/api/audit-logs").header("Authorization", "Bearer " + adminToken))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.content").isArray());
+        }
 
     @Test
     void readsRemainAvailableToNonAdmin() throws Exception {

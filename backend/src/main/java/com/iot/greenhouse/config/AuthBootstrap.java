@@ -24,11 +24,10 @@ public class AuthBootstrap implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        Role adminRole = roleRepository.findByName("ADMIN")
-                .orElseGet(() -> roleRepository.save(Role.builder()
-                        .name("ADMIN")
-                        .description("System administrator")
-                        .build()));
+        Role adminRole = ensureRole("ADMIN", "System administrator");
+        ensureRole("OPERATOR", "Greenhouse monitoring and operations");
+        ensureRole("VIEWER", "Read-only greenhouse access");
+        ensureRole("USER", "Legacy standard user");
 
         if (userRepository.count() > 0) {
             Long adminId = jdbcTemplate.query("SELECT id FROM users WHERE username = ?",
@@ -50,5 +49,13 @@ public class AuthBootstrap implements ApplicationRunner {
                 .build();
 
         userRepository.save(admin);
+    }
+
+    private Role ensureRole(String name, String description) {
+        return roleRepository.findByName(name)
+                .orElseGet(() -> roleRepository.save(Role.builder()
+                        .name(name)
+                        .description(description)
+                        .build()));
     }
 }

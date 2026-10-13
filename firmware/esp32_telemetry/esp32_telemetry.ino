@@ -1,95 +1,68 @@
 /*
- * FloraCore - ESP32 do moi truong + gui len web
+ * FloraCore - ESP32 telemetry sender
  * ---------------------------------------------------------------------------
- * Ban do doc cam bien va in ra Serial Monitor (phan ban test tren Arduino).
- * Ban nay giu nguyen logic do, THEM phan ket noi WiFi + MQTT de gui len backend.
+ * Publishes sensor readings to the MQTT broker that the Spring Boot backend
+ * subscribes to. The backend stores them in PostgreSQL and the web dashboard
+ * reads them through GET /api/telemetry?deviceId=<DEVICE_ID>.
  *
- * Luong du lieu:
- *   ESP32 --MQTT--> broker --> Spring Boot --> PostgreSQL --> web
+ * Topic contract (see backend MqttAdapter):
+ *   greenhouse/{deviceId}/telemetry   payload is a JSON object, e.g.
+ *   {"temperature":26.4,"humidity":61.8,"light":842.5}
  *
- * Backend tu dong lang nghe, firmware KHONG can goi REST API.
+ * Accepted field names: temperature, humidity, soilMoisture (or soil_moisture),
+ * light. Any subset is fine; fields that are absent are stored as NULL.
  *
- * Topic:  greenhouse/esp32-01/telemetry
- * Payload JSON: {"temperature":..,"humidity":..,"soilMoisture":..,"light":..}
+ * Boards:
+ *   ESP32 DevKit + DHT22 (temp/humidity, DATA on GPIO 4)
+ *   BH1750 ambient light sensor over I2C (SDA=GPIO 21, SCL=GPIO 22)
  *
- * Arduino IDE: Library Manager -> cai dat "PubSubClient"
- *               (va "Adafruit BH1750 Library" neu dung cam bien anh sang)
- * ---------------------------------------------------------------------------
+ * Arduino IDE: install "PubSubClient" and "Adafruit BH1750 Library" from
+ * Library Manager, then upload this file.
  */
 
-#include <DHT.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <Wire.h>
+#include <Adafruit_Sensor.h>
 #include <Adafruit_BH1750.h>
+#include <DHT.h>
 
-// ============================ CAU HINH WIFI ================================
-static const char* WIFI_SSID     = "TEN_WIFI_CUA_BAN";
-static const char* WIFI_PASSWORD = "MAT_KHAU_WIFI_CUA_BAN";
+// ---------------------------------------------------------------- configuration
+static const char* WIFI_SSID     = "Tang 3";
+static const char* WIFI_PASSWORD = "Anh@0711";
 
-/*
- * IP LAN cua may tinh dang chay backend - KHONG phai "localhost".
- * Xem bang:  ipconfig   -> dong IPv4 tren adapter Wi-Fi, vi du 192.168.1.8
- * ESP32 khong the goi "localhost" vi local voi chinh no.
- */
-static const char* MQTT_HOST     = "192.168.1.8";
-static const uint16_t MQTT_PORT  = 1883;
-
-// Broker khong yeu cau dang nhap -> de trong.
-static const char* MQTT_USER     = "";
-static const char* MQTT_PASSWORD = "";
-
-/*
- * DEVICE_ID phai trung voi devices.device_id trong database.
- * Sai ten o day -> backend bao "unknown device" va BO QUA im lang.
- */
+// Must match devices.device_id in PostgreSQL, otherwise the backend logs
+// "Received telemetry for unknown device" and drops the reading.
 static const char* DEVICE_ID = "esp32-01";
 
-static const char* TOPIC = "greenhouse/esp32-01/telemetry";  // phai chua DEVICE_ID
+static const char* MQTT_HOST     = "192.168.1.100";   // <-- your PC's LAN IP, not localhost
+static const uint16_t MQTT_PORT  = 1883;
+static const char* MQTT_USER     = "";               // broker without auth: leave empty
+static const char* MQTT_PASSWORD = "";
+static const char* MQTT_TOPIC    = "greenhouse/esp32-01/telemetry";  // must contain DEVICE_ID
 
-// ======================== CAU HINH CAM BIEN (gia nguyen) ====================
-#define DHTPIN 4          // Chan DATA cua DHT22 noi GPIO 4
-#define DHTTYPE DHT22
-DHT dht(DHTPIN, DHTTYPE);
+static const uint8_t  DHT_PIN   = 4;
+static const uint32_t PUBLISH_INTERVAL_MS = 15000;    // 15 s
+static const uint32_t WIFI_RETRY_MS        = 5000;
 
-// GPIO 34 la ADC1_CH6 - dung duoc song song voi WiFi.
-// (Luu y: KHONG dung chan ADC2 nhu 0, 2, 15, 13, 12, 14... se loi khi bat WiFi)
-#define SOIL_PIN 34
-
-// Gia tri ADC can hieu chinh trong thuc te
-const int AIR_VALUE   = 3500;   // Doc duoc khi de kho ngoai khong khi (0%)
-const int WATER_VALUE = 1500;   // Doc duoc khi nhung ngan nuoc (100%)
-
-#define LIGHT_I2C_SDA 21
-#define LIGHT_I2C_SCL 22
-
-// ============================== THOI GIAN ===================================
-static const uint32_t READ_INTERVAL_MS    = 2000;   // doc cam bien 2 giay (như bản cũ)
-static const uint32_t PUBLISH_INTERVAL_MS = 15000;  // gui len web 15 giay
-static const uint32_t WIFI_RETRY_MS       = 5000;
-
+// ------------------------------------------------------------------- instances
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
+DHT dht(DHT_PIN, DHT22);
 Adafruit_BH1750 bh1750;
+
+static uint32_t lastPublishMs = 0;
+static uint32_t lastWifiAttemptMs = 0;
 static bool lightSensorReady = false;
 
-static uint32_t lastReadMs      = 0;
-static uint32_t lastPublishMs   = 0;
-static uint32_t lastWifiRetryMs = 0;
-
-// Cac gia tri cam bien, dung o ca hai noi
-float air_temp = 0, air_humidity = 0;
-int   soil_humidity = 0, soil_raw = 0;
-float lightLux = -1;
-
-// ============================ WI-FI / MQTT ==================================
+// ----------------------------------------------------------------- wifi / mqtt
 void connectWifi() {
   if (WiFi.status() == WL_CONNECTED) return;
-  if (millis() - lastWifiRetryMs < WIFI_RETRY_MS) return;
-  lastWifiRetryMs = millis();
 
-  Serial.print(F("Dang ket noi Wi-Fi: "));
-  Serial.println(WIFI_SSID);
+  if (millis() - lastWifiAttemptMs < WIFI_RETRY_MS) return;
+  lastWifiAttemptMs = millis();
+
+  Serial.printf("Connecting to Wi-Fi: %s\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   uint32_t started = millis();
@@ -99,23 +72,16 @@ void connectWifi() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print(F("\nDa ket noi Wi-Fi. IP: "));
-    Serial.println(WiFi.localIP());
-    Serial.print(F("Serial Monitor baud phai doi thanh "));
-    Serial.println(WiFi.baudRate());
+    Serial.printf("\nWi-Fi connected. IP: %s\n", WiFi.localIP().toString().c_str());
   } else {
-    Serial.println(F("\nKet noi Wi-Fi that bai, se thu lai..."));
+    Serial.println("\nWi-Fi connection failed, will retry.");
   }
 }
 
 void connectMqtt() {
   if (mqtt.connected()) return;
 
-  Serial.print(F("Dang ket noi MQTT "));
-  Serial.print(MQTT_HOST);
-  Serial.print(F(":"));
-  Serial.println(MQTT_PORT);
-
+  Serial.printf("Connecting to MQTT at %s:%u\n", MQTT_HOST, MQTT_PORT);
   bool ok;
   if (MQTT_USER[0] == '\0') {
     ok = mqtt.connect(DEVICE_ID);
@@ -124,124 +90,92 @@ void connectMqtt() {
   }
 
   if (ok) {
-    Serial.println(F("MQTT da ket noi."));
+    Serial.println("MQTT connected.");
   } else {
-    Serial.print(F("MQTT that bai, state = "));
-    Serial.println(mqtt.state());
+    Serial.printf("MQTT failed, state=%d\n", mqtt.state());
   }
 }
 
-// ============================== GUI LEN WEB =================================
-void publishMqtt() {
-  char msg[192];
+// ------------------------------------------------------------------ publishing
+void publishTelemetry() {
+  // snprintf into a fixed buffer: avoids String fragmentation on the heap.
+  char payload[160];
+  float temperature = dht.readTemperature();
+  float humidity    = dht.readHumidity();
+  float light       = lightSensorReady ? bh1750.readLightLevel() : -1.0f;
+
+  // isnan guards the DHT's NAN return on a failed I2C read, which would otherwise
+  // be published as a bogus value.
+  if (isnan(temperature) || isnan(humidity)) {
+    Serial.println("DHT read failed, skipping this cycle.");
+    return;
+  }
+
   if (lightSensorReady) {
-    snprintf(msg, sizeof(msg),
-      "{\"temperature\":%.1f,\"humidity\":%.1f,\"soilMoisture\":%d,\"light\":%.1f}",
-      air_temp, air_humidity, soil_humidity, lightLux);
+    snprintf(payload, sizeof(payload),
+             "{\"temperature\":%.2f,\"humidity\":%.2f,\"light\":%.2f}",
+             temperature, humidity, light);
   } else {
-    snprintf(msg, sizeof(msg),
-      "{\"temperature\":%.1f,\"humidity\":%.1f,\"soilMoisture\":%d}",
-      air_temp, air_humidity, soil_humidity);
+    snprintf(payload, sizeof(payload),
+             "{\"temperature\":%.2f,\"humidity\":%.2f}",
+             temperature, humidity);
   }
 
-  if (mqtt.publish(TOPIC, msg, true)) {   // retained = true
-    Serial.print(F(">> DA GUI: "));
-    Serial.println(msg);
+  // Retained so a backend starting later immediately receives the last reading.
+  if (mqtt.publish(MQTT_TOPIC, payload, /*retained=*/true)) {
+    Serial.printf("Published: %s\n", payload);
   } else {
-    Serial.print(F(">> Gui that bai, state = "));
-    Serial.println(mqtt.state());
+    Serial.printf("Publish failed, state=%d\n", mqtt.state());
   }
 }
 
-// ============================== SETUP =======================================
+// ----------------------------------------------------------------------- setup
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  delay(200);
+  Serial.println("\nFloraCore ESP32 telemetry node");
 
-  Serial.println(F("============================================="));
-  Serial.println(F("Khoi dong he thong do moi truong..."));
-  Serial.println(F("============================================="));
+  pinMode(LED_BUILTIN, OUTPUT);
 
   dht.begin();
-
-  // Cam bien anh sang (khong bat buoc - van chay duoc neu thieu)
-  Wire.begin(LIGHT_I2C_SDA, LIGHT_I2C_SCL);
+  Wire.begin(21, 22);            // ESP32 default I2C pins
   lightSensorReady = bh1750.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
   if (!lightSensorReady) {
-    Serial.println(F("[BH1750] Khong tim thay cam bien anh sang (van chay tiep)."));
+    Serial.println("BH1750 not found - light will be omitted from payloads.");
   }
 
   WiFi.mode(WIFI_STDOUT);
-  WiFi.setSleep(false);   // tranh modem tu dong tat WiFi
+  WiFi.setSleep(false);           // avoids the modem dropping the connection
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setBufferSize(512);
 }
 
-// ============================== LOOP ========================================
+// ----------------------------------------------------------------------- loop
 void loop() {
   connectWifi();
-
-  // --- doc cam bien moi 2 giay (giu nguyen nhu ban cu) ---
-  if (millis() - lastReadMs >= READ_INTERVAL_MS) {
-    lastReadMs = millis();
-
-    // 1. DHT22
-    air_humidity = dht.readHumidity();
-    air_temp     = dht.readTemperature();
-
-    // 2. Cam bien do am dat
-    soil_raw = analogRead(SOIL_PIN);
-    soil_humidity = map(soil_raw, AIR_VALUE, WATER_VALUE, 0, 100);
-    soil_humidity = constrain(soil_humidity, 0, 100);
-
-    // 3. Cam bien anh sang
-    if (lightSensorReady) {
-      lightLux = bh1750.readLightLevel();
-    }
-
-    // 4. In ra Serial Monitor
-    Serial.println(F("---------------------------------------------"));
-    if (isnan(air_humidity) || isnan(air_temp)) {
-      Serial.println(F("[DHT22] Loi: Khong doc duoc du lieu!"));
-    } else {
-      Serial.print(F("[DHT22] Nhiet do: "));
-      Serial.print(air_temp, 1);
-      Serial.print(F("°C  |  Do am KK: "));
-      Serial.print(air_humidity, 1);
-      Serial.println(F("%"));
-    }
-    Serial.print(F("[Dat] Gia tri Raw ADC: "));
-    Serial.print(soil_raw);
-    Serial.print(F("  |  Do am dat: "));
-    Serial.print(soil_humidity);
-    Serial.println(F("%"));
-    if (lightSensorReady) {
-      Serial.print(F("[Anh sang] "));
-      Serial.print(lightLux, 1);
-      Serial.println(F(" lux"));
-    }
-  }
-
-  // --- phan MQTT: chi chay khi da co Wi-Fi ---
   if (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+    digitalWrite(LED_BUILTIN, HIGH);   // solid = no network
+    delay(1000);
     return;
   }
 
   connectMqtt();
   if (!mqtt.connected()) {
+    digitalWrite(LED_BUILTIN, HIGH);
     mqtt.loop();
-    delay(200);
+    delay(500);
     return;
   }
 
+  digitalWrite(LED_BUILTIN, LOW);      // off = publishing normally
+
   mqtt.loop();
 
-  // --- gui len web moi 15 giay ---
-  if (millis() - lastPublishMs >= PUBLISH_INTERVAL_MS && !isnan(air_temp)) {
-    lastPublishMs = millis();
-    publishMqtt();
+  uint32_t now = millis();
+  if (now - lastPublishMs >= PUBLISH_INTERVAL_MS) {
+    lastPublishMs = now;
+    publishTelemetry();
   }
 
-  delay(100);
+  delay(200);
 }

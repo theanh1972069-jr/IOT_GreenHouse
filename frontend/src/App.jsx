@@ -22,7 +22,9 @@ import {
   CircleHelp,
   Clock3,
   Cpu,
+  Droplet,
   FileClock,
+  Info,
   Leaf,
   LoaderCircle,
   LogOut,
@@ -31,6 +33,7 @@ import {
   PanelLeftOpen,
   Plus,
   RefreshCw,
+  Radio,
   Search,
   Settings2,
   SlidersHorizontal,
@@ -56,8 +59,8 @@ const navigation = [
   {
     title: 'Quản trị',
     items: [
-      { label: 'Người dùng', path: '/users', icon: UsersRound },
-      { label: 'Nhật ký hệ thống', path: '/audit-logs', icon: FileClock },
+      { label: 'Người dùng', path: '/users', icon: UsersRound, adminOnly: true },
+      { label: 'Nhật ký hệ thống', path: '/audit-logs', icon: FileClock, adminOnly: true },
       { label: 'Cài đặt', path: '/settings', icon: Settings2 },
     ],
   },
@@ -163,9 +166,16 @@ function LoginPage({ onLogin }) {
   );
 }
 
-function ProtectedRoute({ currentUser, children }) {
+function hasRole(user, requiredRole) {
+  return user?.roles?.some((role) => String(role).replace(/^ROLE_/i, '').toUpperCase() === requiredRole.toUpperCase());
+}
+
+function ProtectedRoute({ currentUser, requiredRole, children }) {
   if (!currentUser) {
     return <Navigate to="/login" replace />;
+  }
+  if (requiredRole && !hasRole(currentUser, requiredRole)) {
+    return <Navigate to="/dashboard" replace />;
   }
   return children;
 }
@@ -175,6 +185,15 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const location = useLocation();
+
+  useEffect(() => {
+    try {
+      const settings = JSON.parse(localStorage.getItem('flora_settings') || '{}');
+      document.documentElement.dataset.theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+    } catch {
+      document.documentElement.dataset.theme = 'light';
+    }
+  }, []);
 
   useEffect(() => {
     if (window.matchMedia('(max-width: 700px)').matches) {
@@ -238,9 +257,10 @@ function App() {
         </div>
         <nav className="side-navigation" aria-label="Điều hướng chính">
           {navigation.map((group) => (
+            group.items.some(({ adminOnly }) => !adminOnly || hasRole(currentUser, 'ADMIN')) &&
             <div className="nav-group" key={group.title}>
               <div className="nav-group-title">{group.title}</div>
-              {group.items.map(({ label, path, icon: Icon }) => (
+              {group.items.filter(({ adminOnly }) => !adminOnly || hasRole(currentUser, 'ADMIN')).map(({ label, path, icon: Icon }) => (
                 <NavLink className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`} to={path} key={path} title={label}>
                   <Icon size={17} strokeWidth={1.9} /><span>{label}</span>
                 </NavLink>
@@ -275,11 +295,11 @@ function App() {
             <Route path="/alerts" element={<ProtectedRoute currentUser={currentUser}><AlertsPage /></ProtectedRoute>} />
             <Route path="/commands" element={<ProtectedRoute currentUser={currentUser}><CommandsPage /></ProtectedRoute>} />
             <Route path="/device-lifecycle" element={<ProtectedRoute currentUser={currentUser}><DeviceLifecyclePage /></ProtectedRoute>} />
-            <Route path="/users" element={<ProtectedRoute currentUser={currentUser}><UsersPage /></ProtectedRoute>} />
-            <Route path="/audit-logs" element={<ProtectedRoute currentUser={currentUser}><AuditLogsPage /></ProtectedRoute>} />
+            <Route path="/users" element={<ProtectedRoute currentUser={currentUser} requiredRole="ADMIN"><UsersPage /></ProtectedRoute>} />
+            <Route path="/audit-logs" element={<ProtectedRoute currentUser={currentUser} requiredRole="ADMIN"><AuditLogsPage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute currentUser={currentUser}><SettingsPage /></ProtectedRoute>} />
             <Route path="/my-profile" element={<ProtectedRoute currentUser={currentUser}><ProfilePage /></ProtectedRoute>} />
-            <Route path="/invite-user" element={<ProtectedRoute currentUser={currentUser}><InviteUserPage /></ProtectedRoute>} />
+            <Route path="/invite-user" element={<ProtectedRoute currentUser={currentUser} requiredRole="ADMIN"><InviteUserPage /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
@@ -529,7 +549,10 @@ function MetricCard({ label, value, unit, icon: Icon, tone }) {
 
 function Devices() {
   const [devices, setDevices] = useState([]);
+  const [latestReadings, setLatestReadings] = useState({});
   const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('ALL');
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -537,7 +560,20 @@ function Devices() {
 
   async function loadDevices(showLoader = true) {
     if (showLoader) setLoading(true);
-    try { setDevices(await apiRequest('/api/devices')); }
+    try {
+      const deviceData = await apiRequest('/api/devices');
+      const readings = await Promise.all(deviceData.map(async (device) => {
+        try {
+          const telemetry = await apiRequest(`/api/telemetry?deviceId=${encodeURIComponent(device.deviceId)}`);
+          return [device.deviceId, telemetry[0] || null];
+        } catch {
+          return [device.deviceId, null];
+        }
+      }));
+      setDevices(deviceData);
+      setLatestReadings(Object.fromEntries(readings));
+      setError('');
+    }
     catch (requestError) { setError(requestError.message || 'Không thể tải danh sách thiết bị.'); }
     finally { if (showLoader) setLoading(false); }
   }
@@ -565,19 +601,65 @@ function Devices() {
     } finally { setSaving(false); }
   }
 
-  const filtered = devices.filter((device) => `${device.deviceId} ${device.name} ${device.zone} ${device.status}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = (category === 'ACTUATORS' ? [] : devices).filter((device) => `${device.deviceId} ${device.name} ${device.zone} ${device.status}`.toLowerCase().includes(query.toLowerCase()));
+  const pageSize = 7;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visibleDevices = filtered.slice(page * pageSize, (page + 1) * pageSize);
+  const onlineCount = devices.filter((device) => ['ACTIVE', 'ONLINE'].includes(device.status?.toUpperCase())).length;
+  const hasActuatorModel = false;
+
+  useEffect(() => { setPage(0); }, [query, category]);
 
   return (
     <>
-      <PageHeading eyebrow="HẠ TẦNG THIẾT BỊ" title="Thiết bị" description="Quản lý node và theo dõi trạng thái kết nối." actions={<button className="button button-primary" onClick={() => setModalOpen(true)}><Plus size={17} /> Đăng ký thiết bị</button>} />
+      <PageHeading eyebrow="HẠ TẦNG THIẾT BỊ" title="Thiết bị" description="Theo dõi cảm biến, kết nối và hoạt động của từng node." actions={<button className="button button-primary" onClick={() => setModalOpen(true)}><Plus size={17} /> Đăng ký thiết bị</button>} />
       {error && <div className="notice notice-error"><AlertTriangle size={17} /><span>{error}</span></div>}
-      <section className="table-panel">
-        <div className="table-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm theo ID, tên hoặc khu vực" aria-label="Tìm thiết bị" /></div><button className="button button-secondary" onClick={loadDevices} disabled={loading}><RefreshCw size={15} className={loading ? 'spin' : ''} /> Làm mới</button></div>
-        <DeviceTable devices={filtered} loading={loading} />
+      <section className="inventory-summary" aria-label="Tổng quan thiết bị">
+        <InventorySummaryCard icon={Radio} label="Cảm biến" value={devices.length} note="Node đã đăng ký" tone="inventory-sensor" />
+        <InventorySummaryCard icon={SlidersHorizontal} label="Thiết bị điều khiển" value={hasActuatorModel ? '—' : 'Chưa khai báo'} note="Backend chưa có loại actuator" tone="inventory-actuator" />
+        <InventorySummaryCard icon={Wifi} label="Kết nối" value={devices.length ? `${onlineCount} / ${devices.length}` : '—'} note={onlineCount ? 'Có node đang hoạt động' : 'Chưa có node trực tuyến'} tone="inventory-network" />
+      </section>
+      <section className="inventory-panel">
+        <div className="inventory-toolbar">
+          <div className="inventory-tabs" role="group" aria-label="Lọc loại thiết bị">
+            <button type="button" className={category === 'ALL' ? 'inventory-tab-active' : ''} aria-pressed={category === 'ALL'} onClick={() => setCategory('ALL')}><Cpu size={14} /> Tất cả <span>{devices.length}</span></button>
+            <button type="button" className={category === 'SENSORS' ? 'inventory-tab-active' : ''} aria-pressed={category === 'SENSORS'} onClick={() => setCategory('SENSORS')}><Radio size={14} /> Cảm biến <span>{devices.length}</span></button>
+            <button type="button" className={category === 'ACTUATORS' ? 'inventory-tab-active' : ''} aria-pressed={category === 'ACTUATORS'} onClick={() => setCategory('ACTUATORS')}><SlidersHorizontal size={14} /> Thiết bị điều khiển <span>0</span></button>
+          </div>
+          <div className="inventory-actions"><label className="inventory-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm kiếm thiết bị..." aria-label="Tìm kiếm thiết bị" /></label><button className="icon-button" type="button" aria-label="Làm mới thiết bị" title="Làm mới" onClick={() => loadDevices()} disabled={loading}><RefreshCw size={15} className={loading ? 'spin' : ''} /></button></div>
+        </div>
+        <div className="inventory-table-heading"><div><strong>Danh sách thiết bị</strong><span>{filtered.length} thiết bị</span></div><span className="inventory-system-status"><i />{onlineCount ? 'Có thiết bị đang hoạt động' : 'Chưa có thiết bị trực tuyến'}</span></div>
+        {category === 'ACTUATORS' && <div className="inventory-empty-note"><Info size={17} /> Hệ thống hiện chưa có loại thiết bị điều khiển được khai báo.</div>}
+        {loading ? <div className="table-state"><LoaderCircle className="spin" size={21} /> Đang tải thiết bị...</div> : category === 'ACTUATORS' ? null : !visibleDevices.length ? <div className="table-state"><Cpu size={22} /><span>Chưa có thiết bị phù hợp.</span></div> : <DeviceInventoryTable devices={visibleDevices} latestReadings={latestReadings} />}
+        <div className="inventory-pagination"><span>Hiển thị {filtered.length ? page * pageSize + 1 : 0}–{Math.min((page + 1) * pageSize, filtered.length)} trên {filtered.length} thiết bị</span><div><button type="button" aria-label="Trang trước" disabled={page <= 0} onClick={() => setPage((current) => current - 1)}>‹</button><span>{page + 1}</span><button type="button" aria-label="Trang sau" disabled={page >= pageCount - 1} onClick={() => setPage((current) => current + 1)}>›</button></div></div>
       </section>
       {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false); }}><form className="modal" onSubmit={createDevice}><div className="modal-heading"><div><div className="section-kicker">THIẾT BỊ MỚI</div><h2>Đăng ký node</h2></div><button type="button" className="icon-button" aria-label="Đóng" onClick={() => setModalOpen(false)}><X size={18} /></button></div><label>Mã thiết bị<input name="deviceId" required maxLength="100" placeholder="GH01-ESP32-002" /></label><label>Tên thiết bị<input name="name" required maxLength="150" placeholder="Node khu thủy canh" /></label><label>Khu vực<input name="zone" required maxLength="50" placeholder="Hydroponic Bed 02" /></label><label>Phiên bản firmware<input name="firmwareVersion" maxLength="50" placeholder="1.0.0" /></label><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => setModalOpen(false)}>Hủy</button><button className="button button-primary" disabled={saving}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />} {saving ? 'Đang gửi...' : 'Đăng ký'}</button></div></form></div>}
     </>
   );
+}
+
+function InventorySummaryCard({ icon: Icon, label, value, note, tone }) {
+  return <article className="inventory-summary-card"><span className={`inventory-summary-icon ${tone}`}><Icon size={17} /></span><div className="inventory-summary-label">{label}</div><div className="inventory-summary-value">{value}</div><div className="inventory-summary-note">{note}</div></article>;
+}
+
+function DeviceInventoryTable({ devices, latestReadings }) {
+  return <div className="table-scroll inventory-table-scroll"><table className="inventory-table"><thead><tr><th>THIẾT BỊ</th><th>LOẠI</th><th>TRẠNG THÁI</th><th>GIÁ TRỊ / HOẠT ĐỘNG</th><th>THAO TÁC</th></tr></thead><tbody>{devices.map((device) => {
+    const telemetry = latestReadings[device.deviceId];
+    const isActive = ['ACTIVE', 'ONLINE'].includes(device.status?.toUpperCase());
+    const readings = [
+      telemetry?.temperature != null && <span className="device-reading" key="temperature"><Thermometer size={13} /> {Number(telemetry.temperature).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} °C</span>,
+      telemetry?.humidity != null && <span className="device-reading" key="humidity"><Activity size={13} /> {Number(telemetry.humidity).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}% RH</span>,
+      telemetry?.soilMoisture != null && <span className="device-reading" key="soil"><Sprout size={13} /> {Number(telemetry.soilMoisture).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}% đất</span>,
+      telemetry?.light != null && <span className="device-reading" key="light"><Zap size={13} /> {Number(telemetry.light).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} lux</span>,
+    ].filter(Boolean);
+    return <tr key={device.deviceId}>
+      <td><div className="inventory-device-name"><span className="inventory-device-icon"><Cpu size={16} /></span><span><strong>{device.name || 'Chưa đặt tên'}</strong><small>{device.deviceId} · {device.zone || 'Chưa phân khu'}</small></span></div></td>
+      <td><span className="inventory-kind"><Radio size={12} /> Cảm biến</span></td>
+      <td><span className={`inventory-status ${isActive ? 'inventory-status-active' : ''}`}><i />{isActive ? 'Đang hoạt động' : device.status === 'OFFLINE' ? 'Mất kết nối' : device.status || 'Chưa xác định'}</span></td>
+      <td><div className="device-readings">{readings.length ? readings : <span className="device-reading-empty">{device.lastSeen ? `Hoạt động ${new Date(device.lastSeen).toLocaleString('vi-VN')}` : 'Chưa nhận telemetry'}</span>}</div></td>
+      <td><NavLink className="inventory-row-action" to={`/commands?deviceId=${encodeURIComponent(device.deviceId)}`}><Activity size={13} /> Xem biểu đồ</NavLink></td>
+    </tr>;
+  })}</tbody></table></div>;
 }
 
 function DeviceTable({ devices, loading, compact = false }) {
