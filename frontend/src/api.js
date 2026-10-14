@@ -32,6 +32,8 @@ export function saveSession(session) {
   localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ ...normalized, expiresAt: Date.now() + SESSION_TTL_MS }));
 }
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+
 export function clearSession() {
   localStorage.removeItem(AUTH_STORAGE_KEY);
 }
@@ -44,7 +46,9 @@ export async function apiRequest(path, options = {}) {
     ...options.headers,
   };
 
-  const response = await fetch(path, {
+  const url = path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
+
+  const response = await fetch(url, {
     ...options,
     headers,
   });

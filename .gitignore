@@ -1,0 +1,28 @@
+# Node & Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Java & Backend
+target/
+*.class
+.mvn/wrapper/maven-wrapper.jar
+application-local.properties
+.env
+
+# IDE & Editor
+.vscode/
+.idea/
+*.iml
+*.iws
+*.ipr
+bin/
+.settings/
+.project
+.classpath
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db

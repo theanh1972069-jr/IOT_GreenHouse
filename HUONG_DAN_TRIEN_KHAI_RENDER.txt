@@ -1,0 +1,101 @@
+================================================================================
+          HƯỚNG DẪN TRIỂN KHAI DỰ ÁN IOT GREENHOUSE LÊN RENDER.COM
+================================================================================
+
+Dự án đã được cấu hình sẵn các file:
+  - backend/Dockerfile       : Tự động đóng gói và chạy Spring Boot qua Docker
+  - frontend/src/api.js      : Hỗ trợ biến môi trường VITE_API_BASE_URL
+  - backend/application.prop : Đã hỗ trợ cổng $PORT và CORS domain *.onrender.com
+  - render.yaml              : File Render Blueprint (cấu hình mẫu tự động)
+
+
+--------------------------------------------------------------------------------
+BƯỚC 1: ĐƯA TOÀN BỘ CODE LÊN GITHUB
+--------------------------------------------------------------------------------
+1. Tạo một repository mới trên GitHub (hoặc dùng repository hiện tại).
+2. Commit và đẩy toàn bộ mã nguồn lên:
+     git add .
+     git commit -m "Configure project for local and Render deployment"
+     git push origin main
+
+
+--------------------------------------------------------------------------------
+BƯỚC 2: TẠO DATABASE POSTGRESQL TRÊN RENDER
+--------------------------------------------------------------------------------
+1. Truy cập https://dashboard.render.com và đăng nhập.
+2. Bấm "New +" -> Chọn "PostgreSQL".
+3. Điền thông tin:
+     - Name: greenhouse-db
+     - Database: iot_greenhouse
+     - User: postgres
+     - Region: Singapore (gần Việt Nam nhất, độ trễ thấp)
+     - Plan: Free
+4. Bấm "Create Database".
+5. Sau khi tạo xong, lấy thông tin "External Database URL" (hoặc Internal Database URL)
+   để kết nối bằng DBeaver/pgAdmin/psql và chạy nội dung file:
+     database/create_tables.sql
+   (để tạo sẵn các bảng dữ liệu users, devices, telemetry,...).
+
+
+--------------------------------------------------------------------------------
+BƯỚC 3: TRIỂN KHAI BACKEND (SPRING BOOT DOCKER WEB SERVICE)
+--------------------------------------------------------------------------------
+1. Trên Render Dashboard, bấm "New +" -> Chọn "Web Service".
+2. Kết nối tới GitHub Repository của dự án.
+3. Cấu hình dịch vụ:
+     - Name: greenhouse-backend
+     - Region: Singapore
+     - Environment: Docker
+     - Dockerfile Path: backend/Dockerfile
+     - Docker Context: backend
+     - Plan: Free
+4. Phần Environment Variables (Thêm các biến môi trường):
+     - PORT = 8080
+     - DB_URL = <Dán Internal Database URL từ Database vừa tạo ở Bước 2>
+     - DB_USERNAME = postgres
+     - DB_PASSWORD = <Mật khẩu database Render tạo cho bạn>
+     - CORS_ALLOWED_ORIGINS = *
+     - MQTT_ENABLED = false  (Bật true nếu có Cloud MQTT Broker)
+5. Bấm "Create Web Service".
+   Chờ Render build Docker image và khởi động. Khi thành công, bạn sẽ nhận được
+   địa chỉ URL của backend (ví dụ: https://greenhouse-backend.onrender.com).
+
+
+--------------------------------------------------------------------------------
+BƯỚC 4: TRIỂN KHAI FRONTEND (REACT VITE STATIC SITE)
+--------------------------------------------------------------------------------
+1. Trên Render Dashboard, bấm "New +" -> Chọn "Static Site".
+2. Kết nối tới GitHub Repository của dự án.
+3. Cấu hình:
+     - Name: greenhouse-frontend
+     - Region: Singapore
+     - Branch: main
+     - Root Directory: frontend
+     - Build Command: npm install && npm run build
+     - Publish Directory: dist
+4. Thêm biến môi trường (Environment Variables):
+     - VITE_API_BASE_URL = https://greenhouse-backend.onrender.com
+       (Thay bằng URL backend của bạn ở Bước 3, KHÔNG có dấu gạch chéo ở cuối)
+5. Cấu hình Rewrite URL (Để hỗ trợ React Router SPA khi reload trang):
+     - Vào tab "Redirects/Rewrites" của dịch vụ Static Site.
+     - Thêm quy tắc:
+         Source: /*
+         Destination: /index.html
+         Action: Rewrite
+6. Bấm "Create Static Site".
+   Khi hoàn tất, bạn có thể truy cập Web Dashboard từ bất cứ đâu qua internet!
+
+
+--------------------------------------------------------------------------------
+BƯỚC 5: LƯU Ý VỀ KẾT NỐI MQTT TỪ ESP32 LÊN CLOUD
+--------------------------------------------------------------------------------
+1. Render Web Service chỉ mở cổng HTTP/HTTPS (443/80), không mở cổng TCP 1883 trực tiếp
+   ra ngoài internet cho ESP32.
+2. Để ESP32 gửi dữ liệu từ xa lên Cloud qua internet, giải pháp chuẩn là dùng
+   Cloud MQTT Broker miễn phí:
+     - HiveMQ Cloud (Miễn phí 100 thiết bị, có bảo mật TLS)
+     - EMQX Serverless Cloud (Miễn phí)
+3. Khi có thông tin Broker Cloud:
+     - Cấu hình lại biến MQTT_BROKER_URL, MQTT_USERNAME, MQTT_PASSWORD trên Backend Render.
+     - Trên ESP32: Nhập địa chỉ Broker Cloud đó qua trang Web Portal (192.168.4.1).
+================================================================================
