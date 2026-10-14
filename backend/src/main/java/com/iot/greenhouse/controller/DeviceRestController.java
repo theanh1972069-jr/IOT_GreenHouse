@@ -95,6 +95,64 @@ public class DeviceRestController {
         return ResponseEntity.created(location).body(saved);
     }
 
+    @PutMapping("/{deviceId}")
+    @RequireRole("ADMIN")
+    public ResponseEntity<?> updateDevice(@PathVariable String deviceId,
+                                          @RequestBody DeviceUpdateRequest request,
+                                          @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor,
+                                          HttpServletRequest httpRequest) {
+        if (request == null) {
+            return ResponseEntity.badRequest().body(new ApiError("Nội dung yêu cầu không hợp lệ."));
+        }
+
+        String name = trimToNull(request.name());
+        String zone = trimToNull(request.zone());
+        String firmwareVersion = trimToNull(request.firmwareVersion());
+        String status = trimToNull(request.status());
+
+        if (name == null || name.length() > MAX_NAME) {
+            return ResponseEntity.badRequest().body(new ApiError("Tên thiết bị là bắt buộc và không vượt quá " + MAX_NAME + " ký tự."));
+        }
+        if (zone == null || zone.length() > MAX_ZONE) {
+            return ResponseEntity.badRequest().body(new ApiError("Khu vực là bắt buộc và không vượt quá " + MAX_ZONE + " ký tự."));
+        }
+        if (firmwareVersion != null && firmwareVersion.length() > MAX_FIRMWARE_VERSION) {
+            return ResponseEntity.badRequest().body(new ApiError("Phiên bản firmware không vượt quá " + MAX_FIRMWARE_VERSION + " ký tự."));
+        }
+        if (status != null) {
+            status = status.toUpperCase(Locale.ROOT);
+            if (!ALLOWED_STATUSES.contains(status)) {
+                return ResponseEntity.badRequest().body(new ApiError("Trạng thái thiết bị không hợp lệ."));
+            }
+        }
+
+        Optional<Device> updated = deviceService.updateDevice(deviceId, name, zone, firmwareVersion, status);
+        if (updated.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        auditLogService.record(actor, httpRequest, "DEVICE_UPDATE", "Device",
+                deviceId, Map.of("name", name, "zone", zone));
+
+        return ResponseEntity.ok(updated.get());
+    }
+
+    @DeleteMapping("/{deviceId}")
+    @RequireRole("ADMIN")
+    public ResponseEntity<?> deleteDevice(@PathVariable String deviceId,
+                                          @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor,
+                                          HttpServletRequest httpRequest) {
+        boolean deleted = deviceService.deleteDeviceByDeviceId(deviceId);
+        if (!deleted) {
+            return ResponseEntity.notFound().build();
+        }
+
+        auditLogService.record(actor, httpRequest, "DEVICE_DELETE", "Device",
+                deviceId, Map.of("action", "delete"));
+
+        return ResponseEntity.noContent().build();
+    }
+
     @PatchMapping("/{deviceId}/status")
     @RequireRole("ADMIN")
     public ResponseEntity<?> updateStatus(@PathVariable String deviceId,
@@ -164,6 +222,8 @@ public class DeviceRestController {
     /** Only these fields are client-settable on registration. */
     public record DeviceRegistrationRequest(String deviceId, String name, String zone,
                                             String firmwareVersion, String macAddress, String ipAddress) {}
+
+    public record DeviceUpdateRequest(String name, String zone, String firmwareVersion, String status) {}
 
     public record StatusRequest(String status) {}
 

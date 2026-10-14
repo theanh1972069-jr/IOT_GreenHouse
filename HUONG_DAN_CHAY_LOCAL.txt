@@ -10,7 +10,7 @@ ESP32 (Cảm biến & Relay)
 Mosquitto Broker (Port 1883)
    │ (Subscribe topic: greenhouse/+/telemetry)
    ▼
-Backend Spring Boot (Port 8080) ──▶ PostgreSQL Database (Port 5432)
+Backend Spring Boot (Port 8080) ──▶ PostgreSQL Online (Neon Cloud)
    │ (REST API)
    ▼
 Frontend React / Vite (Port 5173 - Web Dashboard)
@@ -18,11 +18,12 @@ Frontend React / Vite (Port 5173 - Web Dashboard)
 
 2. THÔNG TIN CẤU HÌNH MẶC ĐỊNH
 --------------------------------------------------------------------------------
-- PostgreSQL:
-    Host: localhost (127.0.0.1) | Port: 5432
-    Database Name: iot_greenhouse
-    Username: postgres
-    Password: postgres
+- PostgreSQL (Neon Cloud Online):
+    Host: ep-polished-shape-azdm3vs2-pooler.c-3.ap-southeast-1.aws.neon.tech
+    Database Name: neondb
+    Username: neondb_owner
+    Password: npg_W5yxhSiIq0HA
+    JDBC URL: jdbc:postgresql://ep-polished-shape-azdm3vs2-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
 
 - MQTT Broker (Mosquitto):
     Host LAN: 192.168.1.220 | Port: 1883 (Lắng nghe 0.0.0.0, cho phép anonymous)
@@ -38,24 +39,21 @@ Frontend React / Vite (Port 5173 - Web Dashboard)
 3. CÁC BƯỚC KHỞI CHẠY HỆ THỐNG MỖI KHI BẬT MÁY
 --------------------------------------------------------------------------------
 
-[BƯỚC 1]: Kiểm tra Dịch vụ Nền (PostgreSQL & Mosquitto)
-Dịch vụ PostgreSQL và Mosquitto đã được cài đặt dưới dạng Windows Service,
-thông thường sẽ tự động chạy ngầm khi bật máy.
-Nếu cần khởi động lại thủ công, mở PowerShell (quyền Admin) chạy:
-    Start-Service postgresql-x64-16
+[BƯỚC 1]: Kiểm tra Dịch vụ MQTT Broker (Mosquitto)
+Cơ sở dữ liệu PostgreSQL đã được chuyển hoàn toàn lên Neon Cloud (không cần chạy trên máy).
+Dịch vụ Mosquitto chạy ngầm dưới dạng Windows Service khi bật máy.
+Nếu cần khởi động lại Mosquitto thủ công, mở PowerShell (quyền Admin) chạy:
     Start-Service mosquitto
 
 
 [BƯỚC 2]: Chạy Backend Spring Boot
 Mở cửa sổ PowerShell số 1:
     cd c:\Users\Admin\Desktop\IOT_GreenHouse\backend
-    $env:DB_URL="jdbc:postgresql://localhost:5432/iot_greenhouse"
-    $env:DB_USERNAME="postgres"
-    $env:DB_PASSWORD="postgres"
     $env:MQTT_ENABLED="true"
     $env:MQTT_BROKER_URL="tcp://localhost:1883"
     .\mvnw.cmd spring-boot:run
 
+(Database URL & mật khẩu Neon đã được cấu hình mặc định sẵn trong file application.properties).
 Chờ khoảng 10-15 giây đến khi thấy dòng: "Started GreenhouseApplication".
 
 

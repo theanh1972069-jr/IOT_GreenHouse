@@ -201,6 +201,7 @@ function ControlOverview({ devices, capability }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [series, setSeries] = useState('temperature');
+  const [range, setRange] = useState('auto');
 
   useEffect(() => {
     if (requestedDeviceId && devices.some((device) => device.deviceId === requestedDeviceId)) {
@@ -301,45 +302,157 @@ function ControlOverview({ devices, capability }) {
     <div className="notice notice-info control-notice"><LockKeyhole size={16} /><span>{unavailableReason} Các lệnh phần cứng đang bị khóa; số liệu và lịch sử lệnh vẫn lấy từ backend.</span></div>
 
     <section className="control-chart-section">
-      <div className="control-chart-heading"><div><h2>Biểu đồ môi trường 24 giờ</h2><p>Theo dõi biến thiên cảm biến nhà kính</p></div><div className="control-chart-tabs" role="group" aria-label="Chỉ số biểu đồ"><button type="button" className={series === 'temperature' ? 'selected' : ''} aria-pressed={series === 'temperature'} onClick={() => setSeries('temperature')}>Nhiệt độ (°C)</button><button type="button" className={series === 'humidity' ? 'selected' : ''} aria-pressed={series === 'humidity'} onClick={() => setSeries('humidity')}>Độ ẩm (%)</button></div></div>
-      <ControlTrendChart telemetry={telemetry} series={series} loading={loading} />
+      <div className="control-chart-heading">
+        <div>
+          <h2>Biểu đồ biến thiên môi trường</h2>
+          <p>Dữ liệu đo đạc cảm biến theo mốc thời gian thực</p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="control-chart-tabs" role="group" aria-label="Khung thời gian">
+            <button type="button" className={range === 'auto' ? 'selected' : ''} onClick={() => setRange('auto')}>Tự động</button>
+            <button type="button" className={range === '15m' ? 'selected' : ''} onClick={() => setRange('15m')}>15 phút</button>
+            <button type="button" className={range === '1h' ? 'selected' : ''} onClick={() => setRange('1h')}>1 giờ</button>
+            <button type="button" className={range === '24h' ? 'selected' : ''} onClick={() => setRange('24h')}>24 giờ</button>
+          </div>
+          <div className="control-chart-tabs" role="group" aria-label="Chỉ số biểu đồ">
+            <button type="button" className={series === 'temperature' ? 'selected' : ''} aria-pressed={series === 'temperature'} onClick={() => setSeries('temperature')}>Nhiệt độ (°C)</button>
+            <button type="button" className={series === 'humidity' ? 'selected' : ''} aria-pressed={series === 'humidity'} onClick={() => setSeries('humidity')}>Độ ẩm KK (%)</button>
+            <button type="button" className={series === 'soilMoisture' ? 'selected' : ''} aria-pressed={series === 'soilMoisture'} onClick={() => setSeries('soilMoisture')}>Độ ẩm đất (%)</button>
+          </div>
+        </div>
+      </div>
+      <ControlTrendChart telemetry={telemetry} series={series} range={range} loading={loading} />
     </section>
   </>;
 }
 
-function ControlTrendChart({ telemetry, series, loading }) {
-  const key = series === 'temperature' ? 'temperature' : 'humidity';
+function ControlTrendChart({ telemetry, series, range = 'auto', loading }) {
+  const key = series === 'temperature' ? 'temperature' : series === 'soilMoisture' ? 'soilMoisture' : 'humidity';
+  const unit = series === 'temperature' ? '°C' : '%';
+  const label = series === 'temperature' ? 'Nhiệt độ' : series === 'soilMoisture' ? 'Độ ẩm đất' : 'Độ ẩm không khí';
   const now = Date.now();
-  const records = telemetry.filter((record) => {
-    const timestamp = new Date(record.timestamp).getTime();
-    return Number.isFinite(timestamp) && timestamp >= now - 24 * 60 * 60 * 1000 && timestamp <= now && Number.isFinite(Number(record[key]));
-  }).sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
-  const values = records.map((record) => Number(record[key]));
+
+  const rangeDurations = {
+    '15m': 15 * 60 * 1000,
+    '1h': 60 * 60 * 1000,
+    '6h': 6 * 60 * 60 * 1000,
+    '24h': 24 * 60 * 60 * 1000,
+  };
+
+  const parsedRecords = (telemetry || [])
+    .map((record) => ({
+      ...record,
+      time: new Date(record.timestamp).getTime(),
+      val: Number(record[key]),
+    }))
+    .filter((record) => Number.isFinite(record.time) && Number.isFinite(record.val))
+    .sort((a, b) => a.time - b.time);
+
+  let startTime;
+  let endTime;
+  let records;
+
+  if (range !== 'auto' && rangeDurations[range]) {
+    const duration = rangeDurations[range];
+    endTime = now;
+    startTime = now - duration;
+    records = parsedRecords.filter((r) => r.time >= startTime && r.time <= endTime);
+  } else {
+    // Auto: adapt to the actual data span
+    if (parsedRecords.length >= 2) {
+      const first = parsedRecords[0].time;
+      const last = parsedRecords[parsedRecords.length - 1].time;
+      const span = Math.max(last - first, 30000);
+      startTime = first - span * 0.05;
+      endTime = last + span * 0.05;
+      records = parsedRecords;
+    } else if (parsedRecords.length === 1) {
+      startTime = parsedRecords[0].time - 5 * 60 * 1000;
+      endTime = parsedRecords[0].time + 60 * 1000;
+      records = parsedRecords;
+    } else {
+      startTime = now - 15 * 60 * 1000;
+      endTime = now;
+      records = [];
+    }
+  }
+
+  const values = records.map((r) => r.val);
   const minimum = values.length ? Math.min(...values) : 0;
   const maximum = values.length ? Math.max(...values) : 1;
   const padding = maximum === minimum ? Math.max(Math.abs(maximum) * 0.1, 1) : (maximum - minimum) * 0.15;
   const low = minimum - padding;
   const high = maximum + padding;
-  const points = records.map((record, index) => ({
-    x: 16 + (index / Math.max(records.length - 1, 1)) * 768,
-    y: 145 - ((Number(record[key]) - low) / (high - low)) * 116,
-    value: Number(record[key]),
+  const timeSpan = Math.max(endTime - startTime, 10000);
+
+  const points = records.map((record) => ({
+    x: 20 + Math.max(0, Math.min(1, (record.time - startTime) / timeSpan)) * 760,
+    y: 145 - ((record.val - low) / (high - low)) * 116,
+    value: record.val,
+    time: record.time,
   }));
+
   const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
   const lastPoint = points[points.length - 1];
-  const area = lastPoint ? `${path} L${lastPoint.x},160 L${points[0].x},160 Z` : '';
+  const firstPoint = points[0];
+  const area = lastPoint && firstPoint ? `${path} L${lastPoint.x.toFixed(1)},160 L${firstPoint.x.toFixed(1)},160 Z` : '';
 
-  return <div className="control-chart-frame">
-    {records.length ? <>
-      <svg className="control-trend-chart" viewBox="0 0 800 190" role="img" aria-label={`Biểu đồ ${series === 'temperature' ? 'nhiệt độ' : 'độ ẩm'} trong 24 giờ`}>
-        <defs><linearGradient id="control-chart-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#139876" stopOpacity=".2" /><stop offset="100%" stopColor="#139876" stopOpacity="0" /></linearGradient></defs>
-        {[38, 76, 114, 152].map((y) => <line key={y} x1="16" x2="784" y1={y} y2={y} className="control-chart-gridline" />)}
-        <path d={area} fill="url(#control-chart-fill)" /><path d={path} className="control-chart-line" />
-        {lastPoint && <circle cx={lastPoint.x} cy={lastPoint.y} r="4" className="control-chart-current" />}
-      </svg>
-      <div className="control-chart-axis"><span>24 giờ trước</span><span>12 giờ</span><span>Hiện tại: {values[values.length - 1].toLocaleString('vi-VN', { maximumFractionDigits: 1 })} {series === 'temperature' ? '°C' : '%'}</span></div>
-    </> : <div className="control-chart-empty">{loading ? 'Đang tải dữ liệu cảm biến...' : 'Chưa có dữ liệu trong 24 giờ qua.'}</div>}
-  </div>;
+  const formatClock = (ts) => {
+    if (!ts || !Number.isFinite(ts)) return '';
+    return new Date(ts).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+
+  const durationSec = Math.round(timeSpan / 1000);
+  const durationDesc = durationSec >= 3600
+    ? `${(durationSec / 3600).toFixed(1)} giờ`
+    : durationSec >= 60
+      ? `${Math.round(durationSec / 60)} phút`
+      : `${durationSec} giây`;
+
+  return (
+    <div className="control-chart-frame">
+      {records.length ? (
+        <>
+          <svg className="control-trend-chart" viewBox="0 0 800 190" role="img" aria-label={`Biểu đồ ${label}`}>
+            <defs>
+              <linearGradient id="control-chart-fill" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor="#139876" stopOpacity=".2" />
+                <stop offset="100%" stopColor="#139876" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {[38, 76, 114, 152].map((y) => (
+              <line key={y} x1="16" x2="784" y1={y} y2={y} className="control-chart-gridline" />
+            ))}
+            {area && <path d={area} fill="url(#control-chart-fill)" />}
+            {path && <path d={path} className="control-chart-line" />}
+            {points.map((pt, i) => (
+              <circle
+                key={i}
+                cx={pt.x}
+                cy={pt.y}
+                r={i === points.length - 1 ? 4.5 : 2.5}
+                className={i === points.length - 1 ? 'control-chart-current' : ''}
+                fill="#087b66"
+              >
+                <title>{`${formatClock(pt.time)}: ${pt.value.toLocaleString('vi-VN', { maximumFractionDigits: 1 })} ${unit}`}</title>
+              </circle>
+            ))}
+          </svg>
+          <div className="control-chart-axis">
+            <span>Từ: <strong>{formatClock(startTime)}</strong></span>
+            <span>Khoảng đo: <strong>{durationDesc}</strong> ({records.length} điểm)</span>
+            <span>
+              Đến: <strong>{formatClock(endTime)}</strong> · Hiện tại: <strong>{values[values.length - 1].toLocaleString('vi-VN', { maximumFractionDigits: 1 })} {unit}</strong>
+            </span>
+          </div>
+        </>
+      ) : (
+        <div className="control-chart-empty">
+          {loading ? 'Đang tải dữ liệu cảm biến...' : 'Chưa có dữ liệu cảm biến trong khoảng thời gian này.'}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function CommandsPage() {

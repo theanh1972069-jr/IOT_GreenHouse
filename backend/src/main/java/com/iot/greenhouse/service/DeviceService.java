@@ -30,6 +30,18 @@ public class DeviceService {
         return deviceRepository.save(device);
     }
 
+    @Transactional
+    public Optional<Device> updateDevice(String deviceId, String name, String zone, String firmwareVersion, String status) {
+        return deviceRepository.findByDeviceId(deviceId)
+                .map(device -> {
+                    if (name != null) device.setName(name);
+                    if (zone != null) device.setZone(zone);
+                    if (firmwareVersion != null) device.setFirmwareVersion(firmwareVersion);
+                    if (status != null) device.setStatus(status);
+                    return deviceRepository.save(device);
+                });
+    }
+
     /**
      * Loads and mutates the device inside a single transaction. Doing this in the
      * controller would hand a detached entity to {@code save()} and downgrade the
@@ -42,6 +54,16 @@ public class DeviceService {
                     device.setStatus(status);
                     return deviceRepository.save(device);
                 });
+    }
+
+    @Transactional
+    public boolean deleteDeviceByDeviceId(String deviceId) {
+        return deviceRepository.findByDeviceId(deviceId)
+                .map(device -> {
+                    deviceRepository.delete(device);
+                    return true;
+                })
+                .orElse(false);
     }
 
     @Transactional
