@@ -75,7 +75,7 @@ public class AlertRestController {
     }
 
     @PostMapping("/{id}/acknowledge")
-    @RequireRole("ADMIN")
+    @RequireRole({"ADMIN", "OPERATOR"})
     @Transactional
     public ResponseEntity<?> acknowledge(@PathVariable Long id,
                                          @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor,
@@ -97,7 +97,7 @@ public class AlertRestController {
     }
 
     @PostMapping("/{id}/resolve")
-    @RequireRole("ADMIN")
+    @RequireRole({"ADMIN", "OPERATOR"})
     @Transactional
     public ResponseEntity<?> resolve(@PathVariable Long id,
                                      @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor,

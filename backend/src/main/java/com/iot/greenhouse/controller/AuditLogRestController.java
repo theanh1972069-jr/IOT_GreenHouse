@@ -1,5 +1,6 @@
 package com.iot.greenhouse.controller;
 
+import com.iot.greenhouse.config.RequireRole;
 import com.iot.greenhouse.entity.AuditLog;
 import com.iot.greenhouse.entity.User;
 import com.iot.greenhouse.repository.AuditLogRepository;
@@ -23,6 +24,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/audit-logs")
+@RequireRole("ADMIN")
 @RequiredArgsConstructor
 public class AuditLogRestController {
 

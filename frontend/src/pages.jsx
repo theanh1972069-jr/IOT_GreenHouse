@@ -1,22 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowDownToLine,
+  BellRing,
   Bell,
   Check,
   CircleAlert,
   Clock3,
+  Droplet,
+  Fan,
   FileClock,
   Info,
+  Lightbulb,
   LoaderCircle,
   LockKeyhole,
   MailPlus,
+  Moon,
+  Play,
   RefreshCw,
   Search,
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
+  Sprout,
+  Sun,
+  Timer,
+  Thermometer,
   UserRound,
   UsersRound,
   Wifi,
@@ -25,6 +35,11 @@ import {
 import { apiRequest } from './api.js';
 
 const refreshMs = 10000;
+const accountRoles = [
+  { value: 'ADMIN', title: 'Administrator (Quản trị viên)', badge: 'Admin', description: 'Toàn quyền quản lý người dùng, thiết bị và cấu hình hệ thống.' },
+  { value: 'OPERATOR', title: 'Giám sát & Vận hành (Operator)', badge: 'Giám sát', description: 'Theo dõi dữ liệu nhà kính và xử lý các cảnh báo vận hành.' },
+  { value: 'VIEWER', title: 'Người xem (Viewer / Observer)', badge: 'Người xem', description: 'Chỉ xem dữ liệu cảm biến và báo cáo, không quản lý tài khoản.' },
+];
 
 /**
  * Reads a list endpoint. Paginated endpoints answer with
@@ -177,6 +192,156 @@ export function AlertsPage() {
   </>;
 }
 
+function ControlOverview({ devices, capability }) {
+  const [searchParams] = useSearchParams();
+  const requestedDeviceId = searchParams.get('deviceId');
+  const [selectedDeviceId, setSelectedDeviceId] = useState('');
+  const [telemetry, setTelemetry] = useState([]);
+  const [configuration, setConfiguration] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [series, setSeries] = useState('temperature');
+
+  useEffect(() => {
+    if (requestedDeviceId && devices.some((device) => device.deviceId === requestedDeviceId)) {
+      setSelectedDeviceId(requestedDeviceId);
+    } else if (!selectedDeviceId && devices.length) {
+      setSelectedDeviceId(devices[0].deviceId);
+    }
+  }, [requestedDeviceId, selectedDeviceId, devices]);
+
+  useEffect(() => {
+    if (!selectedDeviceId) {
+      setTelemetry([]);
+      setConfiguration(null);
+      return undefined;
+    }
+
+    let active = true;
+    const loadTelemetry = async () => {
+      setLoading(true);
+      try {
+        const encodedId = encodeURIComponent(selectedDeviceId);
+        const [records, deviceConfiguration] = await Promise.all([
+          apiRequest(`/api/telemetry?deviceId=${encodedId}`),
+          apiRequest(`/api/devices/${encodedId}/configuration`).catch(() => null),
+        ]);
+        if (active) {
+          setTelemetry(records);
+          setConfiguration(deviceConfiguration);
+          setError('');
+        }
+      } catch (requestError) {
+        if (active) setError(requestError.message || 'Không thể tải dữ liệu cảm biến.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadTelemetry();
+    const intervalId = window.setInterval(loadTelemetry, refreshMs);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [selectedDeviceId]);
+
+  const latest = telemetry[0];
+  const temperatureLimit = Number(configuration?.temperatureHigh) || 35;
+  const soilLimit = Number(configuration?.soilMoistureLow) || 35;
+  const metrics = [
+    { label: 'Nhiệt độ không khí', value: latest?.temperature, unit: '°C', target: `< ${temperatureLimit}°C`, good: (value) => value < temperatureLimit, tone: 'metric-temperature' },
+    { label: 'Độ ẩm không khí', value: latest?.humidity, unit: '% RH', target: '65% – 75%', good: (value) => value >= 65 && value <= 75, tone: 'metric-humidity' },
+    { label: 'Độ ẩm đất', value: latest?.soilMoisture, unit: '%', target: `> ${soilLimit}%`, good: (value) => value > soilLimit, tone: 'metric-soil' },
+    { label: 'Cường độ ánh sáng', value: latest?.light, unit: 'lux', target: '500 – 1000 lux', good: (value) => value >= 500 && value <= 1000, tone: 'metric-light' },
+  ];
+  const unavailableReason = !capability
+    ? 'Đang kiểm tra khả năng điều khiển.'
+    : !capability.mqttEnabled
+      ? 'MQTT đang tắt trên máy chủ.'
+      : !capability.commandProtocolConfigured
+        ? 'Firmware chưa khai báo giao thức nhận lệnh.'
+        : 'Backend chưa có API gửi lệnh đến thiết bị.';
+
+  return <>
+    <div className="control-overview-toolbar">
+      <label className="control-device-select"><span>Node đang theo dõi</span><select value={selectedDeviceId} onChange={(event) => setSelectedDeviceId(event.target.value)} disabled={!devices.length}><option value="">{devices.length ? 'Chọn thiết bị' : 'Chưa có thiết bị'}</option>{devices.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.name} · {device.deviceId}</option>)}</select></label>
+      <span className={`control-live-state ${latest ? 'control-live-on' : ''}`}><span />{loading ? 'Đang đồng bộ' : latest?.timestamp ? `Cập nhật ${formatDate(latest.timestamp)}` : 'Chưa có dữ liệu cảm biến'}</span>
+    </div>
+    {error && <ErrorNotice>{error}</ErrorNotice>}
+
+    <section className="control-metric-grid" aria-label="Chỉ số môi trường hiện tại">
+      {metrics.map(({ label, value, unit, target, good, tone }) => {
+        const isGood = value != null && good(Number(value));
+        return <article className="control-metric-card" key={label}>
+          <div className="control-metric-top"><span>{label}</span><span className={`control-metric-badge ${value == null ? 'badge-unknown' : isGood ? 'badge-good' : 'badge-warn'}`}>{value == null ? 'Chưa có dữ liệu' : isGood ? 'Bình thường' : 'Chú ý'}</span></div>
+          <div className="control-metric-reading">{value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}<small>{unit}</small><span className={tone} /></div>
+          <div className="control-metric-target"><span>Mục tiêu an toàn</span><strong>{target}</strong></div>
+        </article>;
+      })}
+    </section>
+
+    <section className="actuator-grid" aria-label="Thiết bị chấp hành">
+      <article className="actuator-card">
+        <header className="actuator-heading"><span className="actuator-icon actuator-fan"><Fan size={17} /></span><span><strong>Quạt thông gió</strong><small>Lưu thông không khí vòm cây</small></span><span className="actuator-state">Chưa khả dụng</span></header>
+        <div className="actuator-control-row"><span><strong>Nguồn thiết bị</strong><small>Chế độ tự động</small></span><input type="checkbox" role="switch" aria-label="Bật quạt thông gió" disabled title={unavailableReason} /></div>
+        <footer className="actuator-footer"><span>Tự động khi nhiệt độ vượt ngưỡng</span><button type="button" disabled title={unavailableReason}>Cấu hình</button></footer>
+      </article>
+      <article className="actuator-card">
+        <header className="actuator-heading"><span className="actuator-icon actuator-pump"><Droplet size={17} /></span><span><strong>Máy bơm tưới</strong><small>Hệ thống cấp nước nhỏ giọt</small></span><span className="actuator-state">Chưa khả dụng</span></header>
+        <div className="actuator-control-row"><span><strong>Nguồn thiết bị</strong><small>Tự động theo lịch</small></span><input type="checkbox" role="switch" aria-label="Bật máy bơm tưới" disabled title={unavailableReason} /></div>
+        <button className="actuator-action" type="button" disabled title={unavailableReason}><Play size={14} /> Tưới nhanh 5 phút</button>
+      </article>
+      <article className="actuator-card">
+        <header className="actuator-heading"><span className="actuator-icon actuator-light"><Lightbulb size={17} /></span><span><strong>Đèn sinh trưởng LED</strong><small>Dải quang phổ cho cây con</small></span><span className="actuator-state">Chưa khả dụng</span></header>
+        <label className="brightness-control"><span><strong>Độ sáng</strong><b>80%</b></span><input type="range" min="0" max="100" defaultValue="80" disabled aria-label="Độ sáng đèn sinh trưởng" title={unavailableReason} /></label>
+        <footer className="actuator-footer"><span>Tự động tắt lúc 22:00</span><input type="checkbox" role="switch" aria-label="Hẹn giờ đèn sinh trưởng" disabled title={unavailableReason} /></footer>
+      </article>
+    </section>
+    <div className="notice notice-info control-notice"><LockKeyhole size={16} /><span>{unavailableReason} Các lệnh phần cứng đang bị khóa; số liệu và lịch sử lệnh vẫn lấy từ backend.</span></div>
+
+    <section className="control-chart-section">
+      <div className="control-chart-heading"><div><h2>Biểu đồ môi trường 24 giờ</h2><p>Theo dõi biến thiên cảm biến nhà kính</p></div><div className="control-chart-tabs" role="group" aria-label="Chỉ số biểu đồ"><button type="button" className={series === 'temperature' ? 'selected' : ''} aria-pressed={series === 'temperature'} onClick={() => setSeries('temperature')}>Nhiệt độ (°C)</button><button type="button" className={series === 'humidity' ? 'selected' : ''} aria-pressed={series === 'humidity'} onClick={() => setSeries('humidity')}>Độ ẩm (%)</button></div></div>
+      <ControlTrendChart telemetry={telemetry} series={series} loading={loading} />
+    </section>
+  </>;
+}
+
+function ControlTrendChart({ telemetry, series, loading }) {
+  const key = series === 'temperature' ? 'temperature' : 'humidity';
+  const now = Date.now();
+  const records = telemetry.filter((record) => {
+    const timestamp = new Date(record.timestamp).getTime();
+    return Number.isFinite(timestamp) && timestamp >= now - 24 * 60 * 60 * 1000 && timestamp <= now && Number.isFinite(Number(record[key]));
+  }).sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
+  const values = records.map((record) => Number(record[key]));
+  const minimum = values.length ? Math.min(...values) : 0;
+  const maximum = values.length ? Math.max(...values) : 1;
+  const padding = maximum === minimum ? Math.max(Math.abs(maximum) * 0.1, 1) : (maximum - minimum) * 0.15;
+  const low = minimum - padding;
+  const high = maximum + padding;
+  const points = records.map((record, index) => ({
+    x: 16 + (index / Math.max(records.length - 1, 1)) * 768,
+    y: 145 - ((Number(record[key]) - low) / (high - low)) * 116,
+    value: Number(record[key]),
+  }));
+  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+  const lastPoint = points[points.length - 1];
+  const area = lastPoint ? `${path} L${lastPoint.x},160 L${points[0].x},160 Z` : '';
+
+  return <div className="control-chart-frame">
+    {records.length ? <>
+      <svg className="control-trend-chart" viewBox="0 0 800 190" role="img" aria-label={`Biểu đồ ${series === 'temperature' ? 'nhiệt độ' : 'độ ẩm'} trong 24 giờ`}>
+        <defs><linearGradient id="control-chart-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#139876" stopOpacity=".2" /><stop offset="100%" stopColor="#139876" stopOpacity="0" /></linearGradient></defs>
+        {[38, 76, 114, 152].map((y) => <line key={y} x1="16" x2="784" y1={y} y2={y} className="control-chart-gridline" />)}
+        <path d={area} fill="url(#control-chart-fill)" /><path d={path} className="control-chart-line" />
+        {lastPoint && <circle cx={lastPoint.x} cy={lastPoint.y} r="4" className="control-chart-current" />}
+      </svg>
+      <div className="control-chart-axis"><span>24 giờ trước</span><span>12 giờ</span><span>Hiện tại: {values[values.length - 1].toLocaleString('vi-VN', { maximumFractionDigits: 1 })} {series === 'temperature' ? '°C' : '%'}</span></div>
+    </> : <div className="control-chart-empty">{loading ? 'Đang tải dữ liệu cảm biến...' : 'Chưa có dữ liệu trong 24 giờ qua.'}</div>}
+  </div>;
+}
+
 export function CommandsPage() {
   const [capability, setCapability] = useState(null);
   const [status, setStatus] = useState('ALL');
@@ -192,11 +357,12 @@ export function CommandsPage() {
   });
 
   return <>
-    <ModuleHeading eyebrow="VẬN HÀNH / ĐIỀU KHIỂN" title="Lệnh thiết bị" description="Theo dõi lịch sử yêu cầu điều khiển và trạng thái thực thi." actions={<button className="button button-secondary" onClick={refresh}><RefreshCw size={15} /> Làm mới</button>} />
-    <div className="notice notice-info"><CircleAlert size={17} /><span>{capability?.mqttEnabled && capability?.commandProtocolConfigured ? 'Broker sẵn sàng; lệnh sẽ được gửi theo giao thức firmware.' : 'Gửi lệnh đang bị khóa: MQTT đang tắt hoặc chưa có giao thức topic/payload từ firmware. Hiện trang chỉ hiển thị lịch sử có thật.'}</span></div>
+    <ModuleHeading eyebrow="VẬN HÀNH / ĐIỀU KHIỂN" title="Điều khiển nhà kính" description="Theo dõi môi trường và trạng thái các thiết bị trong nhà kính." actions={<button className="button button-secondary" onClick={refresh}><RefreshCw size={15} /> Làm mới</button>} />
+    <ControlOverview devices={devices} capability={capability} />
     <ErrorNotice>{error}</ErrorNotice>
     <section className="table-panel">
-      <div className="table-toolbar filter-toolbar"><div className="toolbar-title"><strong>Lịch sử lệnh</strong><span>{meta.totalElements} bản ghi</span></div><label className="filter-select"><select value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="ALL">Mọi thiết bị</option>{devices.map((device) => <option value={device.deviceId} key={device.deviceId}>{device.name} · {device.deviceId}</option>)}</select></label><label className="filter-select"><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">Mọi trạng thái</option>{['PENDING', 'SENT', 'SUCCESS', 'FAILED', 'TIMEOUT', 'REJECTED'].map((value) => <option key={value}>{value}</option>)}</select></label></div>
+      <div className="section-heading command-history-heading"><div><div className="section-kicker">NHẬT KÝ THIẾT BỊ</div><h2>Lịch sử lệnh <span className="history-count">{meta.totalElements}</span></h2></div></div>
+      <div className="table-toolbar filter-toolbar"><label className="filter-select"><select value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="ALL">Mọi thiết bị</option>{devices.map((device) => <option value={device.deviceId} key={device.deviceId}>{device.name} · {device.deviceId}</option>)}</select></label><label className="filter-select"><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">Mọi trạng thái</option>{['PENDING', 'SENT', 'SUCCESS', 'FAILED', 'TIMEOUT', 'REJECTED'].map((value) => <option key={value}>{value}</option>)}</select></label></div>
       <TableFrame loading={loading} empty={commands.length ? null : 'Chưa có lịch sử lệnh.'}><thead><tr><th>MÃ LỆNH</th><th>THIẾT BỊ</th><th>LOẠI</th><th>PAYLOAD</th><th>TRẠNG THÁI</th><th>TẠO LÚC</th></tr></thead><tbody>{commands.map((command) => <tr key={command.id}><td className="mono-cell">{command.commandId}</td><td><div className="cell-primary">{command.deviceName}</div><div className="cell-secondary">{command.deviceId}</div></td><td>{command.commandType}</td><td><code className="payload-cell">{command.payload ? JSON.stringify(command.payload) : '—'}</code></td><td><StatusBadge value={command.status} /></td><td>{formatDate(command.createdAt)}</td></tr>)}</tbody></TableFrame>
       <Pager meta={meta} onPage={setPage} />
     </section>
@@ -290,63 +456,84 @@ export function AuditLogsPage() {
 }
 
 export function SettingsPage() {
-  const { data: devices, loading: devicesLoading, error: devicesError } = useApiCollection('/api/devices');
-  const [deviceId, setDeviceId] = useState('');
-  const [configuration, setConfiguration] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
+  const defaults = {
+    greenhouseName: 'Smart Greenhouse Unit 01',
+    timezone: 'Asia/Ho_Chi_Minh',
+    refreshSeconds: '5',
+    temperatureUnit: 'C',
+    themeMode: 'light',
+    autoReconnect: true,
+    dashboardNotifications: true,
+    temperatureAlerts: true,
+    nodeAlerts: true,
+  };
+  const [settings, setSettings] = useState(() => {
+    try {
+      return { ...defaults, ...JSON.parse(localStorage.getItem('flora_settings') || '{}') };
+    } catch {
+      return defaults;
+    }
+  });
+  const [systemStatus, setSystemStatus] = useState(null);
+  const [statusError, setStatusError] = useState(false);
 
   useEffect(() => {
-    if (!deviceId && devices.length) setDeviceId(devices[0].deviceId);
-  }, [deviceId, devices]);
+    try { localStorage.setItem('flora_settings', JSON.stringify(settings)); } catch {}
+  }, [settings]);
 
   useEffect(() => {
-    if (!deviceId) { setConfiguration(null); return; }
-    let active = true;
-    setLoading(true);
-    setError('');
-    apiRequest(`/api/devices/${encodeURIComponent(deviceId)}/configuration`)
-      .then((data) => { if (active) setConfiguration(data); })
-      .catch((requestError) => { if (active) setError(requestError.message); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [deviceId]);
+    apiRequest('/api/system/status')
+      .then(setSystemStatus)
+      .catch(() => setStatusError(true));
+  }, []);
 
-  async function save(event) {
-    event.preventDefault();
-    setSaving(true);
-    setError('');
-    setSaved(false);
-    const form = new FormData(event.currentTarget);
-    const payload = {
-      temperatureHigh: Number(form.get('temperatureHigh')),
-      soilMoistureLow: Number(form.get('soilMoistureLow')),
-      heartbeatInterval: Number(form.get('heartbeatInterval')),
-      autoWatering: form.get('autoWatering') === 'on',
-    };
-    try { setConfiguration(await apiRequest(`/api/devices/${encodeURIComponent(deviceId)}/configuration`, { method: 'PUT', body: JSON.stringify(payload) })); setSaved(true); }
-    catch (requestError) { setError(requestError.message || 'Không thể lưu cấu hình.'); }
-    finally { setSaving(false); }
+  function updateSetting(name, value) {
+    setSettings((current) => ({ ...current, [name]: value }));
+    if (name === 'themeMode') document.documentElement.dataset.theme = value;
+  }
+
+  function ToggleRow({ name, title, description }) {
+    return <label className="preference-row">
+      <span className="preference-copy"><strong>{title}</strong><small>{description}</small></span>
+      <input className="switch-input" type="checkbox" checked={settings[name]} onChange={(event) => updateSetting(name, event.target.checked)} />
+    </label>;
   }
 
   return <>
-    <ModuleHeading eyebrow="QUẢN TRỊ / VẬN HÀNH" title="Cài đặt thiết bị" description="Điều chỉnh ngưỡng cảnh báo và chu kỳ heartbeat cho từng node." />
-    <ErrorNotice>{devicesError || error}</ErrorNotice>
-    <section className="settings-panel">
-      <div className="section-heading"><div><div className="section-kicker">CẤU HÌNH THEO NODE</div><h2>Tham số môi trường</h2></div><Settings2 size={19} className="muted-icon" /></div>
-      {devicesLoading ? <LoadingState /> : devices.length === 0 ? <EmptyState label="Đăng ký thiết bị trước khi cấu hình." /> : <>
-        <label className="form-label">Thiết bị<select className="form-control" value={deviceId} onChange={(event) => setDeviceId(event.target.value)}>{devices.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.name} · {device.deviceId}</option>)}</select></label>
-        {loading ? <LoadingState label="Đang tải cấu hình..." /> : configuration && <form className="settings-form" onSubmit={save}>
-          <div className="settings-fields"><label className="form-label">Ngưỡng nhiệt độ cao <span className="input-with-unit"><input className="form-control" type="number" name="temperatureHigh" min="0.01" max="80" step="0.1" required value={configuration.temperatureHigh} onChange={(event) => setConfiguration({ ...configuration, temperatureHigh: event.target.value })} /><span>°C</span></span></label><label className="form-label">Ngưỡng độ ẩm đất thấp <span className="input-with-unit"><input className="form-control" type="number" name="soilMoistureLow" min="0" max="100" step="0.1" required value={configuration.soilMoistureLow} onChange={(event) => setConfiguration({ ...configuration, soilMoistureLow: event.target.value })} /><span>%</span></span></label><label className="form-label">Chu kỳ heartbeat <span className="input-with-unit"><input className="form-control" type="number" name="heartbeatInterval" min="1" max="3600" step="1" required value={configuration.heartbeatInterval} onChange={(event) => setConfiguration({ ...configuration, heartbeatInterval: event.target.value })} /><span>giây</span></span></label></div>
-          <label className="toggle-row"><span><strong>Tự động tưới</strong><small>Cho phép node tự điều khiển tưới theo cấu hình đã triển khai.</small></span><input type="checkbox" name="autoWatering" checked={Boolean(configuration.autoWatering)} onChange={(event) => setConfiguration({ ...configuration, autoWatering: event.target.checked })} /></label>
-          <div className="form-footer">{configuration.updatedAt && <span>Cập nhật {formatDate(configuration.updatedAt)}</span>}<button className="button button-primary" disabled={saving}>{saving ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{saving ? 'Đang lưu...' : 'Lưu cấu hình'}</button></div>
-          {saved && <div className="inline-success"><Check size={15} /> Cấu hình đã được lưu vào cơ sở dữ liệu.</div>}
-        </form>}
-      </>}
-    </section>
-    <div className="notice notice-info"><Info size={17} /><span>Thay đổi đã lưu ở backend. Gửi cấu hình xuống firmware sẽ cần MQTT command protocol được xác định.</span></div>
+    <ModuleHeading eyebrow="QUẢN TRỊ / HỆ THỐNG" title="Cài đặt" description="Thông tin nhà kính và tùy chọn vận hành." />
+    <div className="preferences-page">
+      <section className="preference-section" aria-labelledby="general-settings-title">
+        <div className="preference-heading"><span className="preference-icon"><Settings2 size={18} /></span><div><h2 id="general-settings-title">Cài đặt chung</h2><p>Thông tin nhận diện và đơn vị hiển thị</p></div></div>
+        <div className="preference-body">
+          <label className="preference-field preference-field-full"><span>Tên nhà kính</span><input className="preference-control" value={settings.greenhouseName} onChange={(event) => updateSetting('greenhouseName', event.target.value)} /></label>
+          <div className="preference-field-grid">
+            <label className="preference-field"><span>Múi giờ vận hành</span><select className="preference-control" value={settings.timezone} onChange={(event) => updateSetting('timezone', event.target.value)}><option value="Asia/Ho_Chi_Minh">UTC+07:00 (Hà Nội, TP.HCM)</option><option value="Asia/Bangkok">UTC+07:00 (Bangkok)</option><option value="Asia/Tokyo">UTC+09:00 (Tokyo)</option><option value="UTC">UTC+00:00 (UTC)</option></select></label>
+            <label className="preference-field"><span>Tần suất cập nhật dữ liệu</span><span className="preference-select-wrap"><select className="preference-control" value={settings.refreshSeconds} onChange={(event) => updateSetting('refreshSeconds', event.target.value)}><option value="5">5 giây (Thời gian thực)</option><option value="10">10 giây</option><option value="30">30 giây</option><option value="60">1 phút</option></select><Timer size={15} /></span></label>
+          </div>
+          <div className="theme-setting"><span className="unit-copy"><strong>Chế độ giao diện</strong><small>Chọn giao diện sáng hoặc tối cho toàn ứng dụng</small></span><div className="theme-options" role="group" aria-label="Chế độ giao diện"><button type="button" className={settings.themeMode === 'light' ? 'theme-option-active' : ''} aria-pressed={settings.themeMode === 'light'} onClick={() => updateSetting('themeMode', 'light')}><Sun size={14} /> Sáng</button><button type="button" className={settings.themeMode === 'dark' ? 'theme-option-active' : ''} aria-pressed={settings.themeMode === 'dark'} onClick={() => updateSetting('themeMode', 'dark')}><Moon size={14} /> Tối</button></div></div>
+          <div className="unit-setting"><span className="unit-copy"><strong>Đơn vị nhiệt độ</strong><small>Áp dụng hiển thị trên toàn bộ biểu đồ và chỉ số sensor</small></span><div className="unit-switch" role="group" aria-label="Đơn vị nhiệt độ"><button type="button" className={settings.temperatureUnit === 'C' ? 'unit-active' : ''} aria-pressed={settings.temperatureUnit === 'C'} onClick={() => updateSetting('temperatureUnit', 'C')}>°C</button><button type="button" className={settings.temperatureUnit === 'F' ? 'unit-active' : ''} aria-pressed={settings.temperatureUnit === 'F'} onClick={() => updateSetting('temperatureUnit', 'F')}>°F</button></div></div>
+        </div>
+      </section>
+
+      <section className="preference-section" aria-labelledby="connection-settings-title">
+        <div className="preference-heading"><span className="preference-icon"><Wifi size={18} /></span><div><h2 id="connection-settings-title">Kết nối &amp; MQTT</h2><p>Thông số truyền thông dữ liệu đám mây</p></div></div>
+        <div className="preference-body">
+          <div className="connection-status"><span className={`connection-indicator ${systemStatus?.mqttEnabled ? 'is-enabled' : ''}`} /><div className="connection-copy"><strong>Trạng thái MQTT</strong><small>{statusError ? 'Không thể tải trạng thái từ máy chủ' : systemStatus?.mqttEnabled ? 'Dịch vụ MQTT đã được bật trên máy chủ' : systemStatus ? 'Dịch vụ MQTT chưa được bật' : 'Đang kiểm tra trạng thái...'}</small></div><span className={`connection-badge ${systemStatus?.mqttEnabled ? 'badge-enabled' : ''}`}>{statusError ? 'KHÔNG RÕ' : systemStatus?.mqttEnabled ? 'ĐÃ BẬT' : systemStatus ? 'ĐÃ TẮT' : 'ĐANG TẢI'}</span></div>
+          <div className="broker-field"><label htmlFor="mqtt-broker">Máy chủ MQTT (Broker Host)</label><div className="broker-value"><span id="mqtt-broker">Được quản lý bởi máy chủ</span><LockKeyhole size={15} aria-label="Chỉ đọc" /></div></div>
+          <ToggleRow name="autoReconnect" title="Tự động kết nối lại khi mất mạng" description="Tự khởi tạo phiên kết nối socket nếu bị ngắt quãng" />
+        </div>
+      </section>
+
+      <section className="preference-section" aria-labelledby="alert-settings-title">
+        <div className="preference-heading"><span className="preference-icon"><BellRing size={18} /></span><div><h2 id="alert-settings-title">Thông báo &amp; Cảnh báo</h2><p>Thiết lập bộ lọc và kích hoạt cảnh báo thông minh</p></div></div>
+        <div className="preference-body preference-body-compact">
+          <ToggleRow name="dashboardNotifications" title="Nhận cảnh báo trực tiếp trên Web Dashboard" description="Hiển thị thông báo tức thời trên thanh công cụ" />
+          <ToggleRow name="temperatureAlerts" title="Cảnh báo nhiệt độ & độ ẩm vượt ngưỡng" description="Báo động ngay khi nhiệt độ > 34°C hoặc ẩm rễ < 45%" />
+          <ToggleRow name="nodeAlerts" title="Cảnh báo mất kết nối Node cảm biến" description="Phát hiện và báo động khi node không phản hồi quá 30 giây" />
+        </div>
+      </section>
+      <p className="preferences-note"><Info size={14} /> Tùy chọn giao diện được lưu trên trình duyệt này.</p>
+    </div>
   </>;
 }
 
@@ -379,7 +566,7 @@ export function ProfilePage() {
 }
 
 export function InviteUserPage() {
-  const [form, setForm] = useState({ username: '', email: '', fullName: '', password: '' });
+  const [form, setForm] = useState({ username: '', email: '', fullName: '', password: '', role: 'OPERATOR' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [created, setCreated] = useState(null);
@@ -395,7 +582,7 @@ export function InviteUserPage() {
         body: JSON.stringify(form),
       });
       setCreated(user);
-      setForm({ username: '', email: '', fullName: '', password: '' });
+      setForm({ username: '', email: '', fullName: '', password: '', role: 'OPERATOR' });
     } catch (requestError) {
       setError(requestError.message || 'Không thể tạo tài khoản.');
     } finally {
@@ -404,7 +591,7 @@ export function InviteUserPage() {
   }
 
   return <>
-    <ModuleHeading eyebrow="QUẢN TRỊ / TRUY CẬP" title="Tạo tài khoản" description="Tạo thông tin đăng nhập mới với quyền USER." actions={<Link className="button button-secondary" to="/users"><UsersRound size={15} /> Danh sách người dùng</Link>} />
+    <ModuleHeading eyebrow="QUẢN TRỊ / TRUY CẬP" title="Tạo tài khoản" description="Tạo thông tin đăng nhập mới và chọn vai trò phù hợp." actions={<Link className="button button-secondary" to="/users"><UsersRound size={15} /> Danh sách người dùng</Link>} />
     <ErrorNotice>{error}</ErrorNotice>
     <section className="settings-panel user-create-panel">
       <div className="section-heading"><div><div className="section-kicker">TÀI KHOẢN MỚI</div><h2>Thông tin đăng nhập</h2></div><MailPlus size={19} className="muted-icon" /></div>
@@ -415,9 +602,18 @@ export function InviteUserPage() {
           <label className="form-label">Họ và tên<input className="form-control" maxLength="150" autoComplete="name" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} /></label>
           <label className="form-label">Mật khẩu tạm thời<input className="form-control" required type="password" minLength="8" maxLength="72" autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
         </div>
+        <fieldset className="role-picker">
+          <legend>Chọn vai trò &amp; phân quyền</legend>
+          <div className="role-option-list">
+            {accountRoles.map((role) => <label className={`role-option ${form.role === role.value ? 'role-option-selected' : ''}`} key={role.value}>
+              <input type="radio" name="account-role" value={role.value} checked={form.role === role.value} onChange={() => setForm({ ...form, role: role.value })} />
+              <span className="role-option-content"><span className="role-option-heading"><strong>{role.title}</strong><span className={`role-option-badge role-badge-${role.value.toLowerCase()}`}>{role.badge}</span></span><small>{role.description}</small></span>
+            </label>)}
+          </div>
+        </fieldset>
         <div className="form-footer"><span>Yêu cầu mật khẩu tối thiểu 8 ký tự.</span><button className="button button-primary" disabled={saving}>{saving ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{saving ? 'Đang tạo...' : 'Tạo tài khoản'}</button></div>
       </form>
-      {created && <div className="inline-success"><Check size={15} /> Đã tạo tài khoản @{created.username} với quyền USER.</div>}
+      {created && <div className="inline-success"><Check size={15} /> Đã tạo tài khoản @{created.username} với vai trò {accountRoles.find((role) => role.value === created.roles?.[0])?.title || created.roles?.[0]}.</div>}
     </section>
   </>;
 }
