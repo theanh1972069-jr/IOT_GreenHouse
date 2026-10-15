@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertsPage,
@@ -9,8 +9,10 @@ import {
   ProfilePage,
   SettingsPage,
   UsersPage,
+  timeAgo,
 } from './pages.jsx';
 import { apiRequest, clearSession, getStoredSession, saveSession } from './api.js';
+import { roleLabel, useAvatar } from './avatar.js';
 import {
   Activity,
   AlertTriangle,
@@ -19,27 +21,35 @@ import {
   Bell,
   Check,
   ChevronDown,
-  CircleHelp,
   Clock3,
   Cpu,
   Droplet,
+  Droplets,
+  Fan,
   FileClock,
+  Home,
   Info,
   Leaf,
+  Lightbulb,
   LoaderCircle,
   LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Play,
   Plus,
+  Power,
   RefreshCw,
   Radio,
   Search,
   Settings2,
   SlidersHorizontal,
   Sprout,
+  Sun,
   Thermometer,
+  UserRound,
   UsersRound,
+  Waves,
   Wifi,
   X,
   Zap,
@@ -180,11 +190,117 @@ function ProtectedRoute({ currentUser, requiredRole, children }) {
   return children;
 }
 
+function TopbarExtras({ currentUser, onLogout }) {
+  const [bellOpen, setBellOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [openCount, setOpenCount] = useState(0);
+  const [recent, setRecent] = useState([]);
+  const bellRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const loadBell = useCallback(async () => {
+    try {
+      const payload = await apiRequest('/api/alerts?status=OPEN&page=0&size=5');
+      const content = Array.isArray(payload) ? payload : payload.content || [];
+      if (Array.isArray(payload)) {
+        setRecent(content);
+        setOpenCount(content.length);
+      } else {
+        setRecent(content);
+        setOpenCount(payload.totalElements ?? 0);
+      }
+    } catch {
+      setRecent([]);
+      setOpenCount(0);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadBell();
+    const intervalId = window.setInterval(loadBell, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [loadBell]);
+
+  useEffect(() => {
+    function onPointerDown(event) {
+      if (bellRef.current && !bellRef.current.contains(event.target)) setBellOpen(false);
+      if (menuRef.current && !menuRef.current.contains(event.target)) setMenuOpen(false);
+    }
+    function onKeyDown(event) {
+      if (event.key === 'Escape') {
+        setBellOpen(false);
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
+
+  const displayName = currentUser.fullName || currentUser.username || 'U';
+  const initials = displayName.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+  const subline = currentUser.email || roleLabel(currentUser.roles?.[0]);
+  const avatar = useAvatar(currentUser);
+
+  return <>
+    <div className="topbar-dropdown" ref={bellRef}>
+      <button
+        className="icon-button bell-button"
+        type="button"
+        aria-label={`Thông báo${openCount ? `, ${openCount} chưa xử lý` : ''}`}
+        aria-expanded={bellOpen}
+        aria-haspopup="menu"
+        onClick={() => { setBellOpen((open) => !open); setMenuOpen(false); if (!bellOpen) loadBell(); }}
+      >
+        <Bell size={18} />
+        {openCount > 0 && <span className="bell-badge">{openCount > 99 ? '99+' : openCount}</span>}
+      </button>
+      {bellOpen && (
+        <div className="dropdown-panel bell-panel" role="menu" aria-label="Cảnh báo chưa xử lý">
+          <div className="dropdown-heading"><strong>Cảnh báo chưa xử lý</strong><span>{openCount}</span></div>
+          {recent.length ? recent.map((alert) => (
+            <NavLink key={alert.id} className="bell-item" to="/alerts" onClick={() => setBellOpen(false)}>
+              <i className={`bell-dot ${alert.severity === 'CRITICAL' ? 'bell-dot-crit' : 'bell-dot-warn'}`} />
+              <span><strong>{alert.message}</strong><small>{alert.deviceName || alert.deviceId} · {timeAgo(alert.createdAt)}</small></span>
+            </NavLink>
+          )) : <div className="dropdown-empty">Không có cảnh báo mở.</div>}
+          <NavLink className="dropdown-footer" to="/alerts" onClick={() => setBellOpen(false)}>Xem tất cả cảnh báo</NavLink>
+        </div>
+      )}
+    </div>
+    <div className="topbar-dropdown" ref={menuRef}>
+      <button
+        className="avatar-button"
+        type="button"
+        aria-label="Mở menu tài khoản"
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        onClick={() => { setMenuOpen((open) => !open); setBellOpen(false); }}
+      >
+        <span className="avatar-mini">{avatar ? <img src={avatar} alt="" className="avatar-img" /> : initials}</span>
+        <ChevronDown size={15} />
+      </button>
+      {menuOpen && (
+        <div className="dropdown-panel menu-panel" role="menu" aria-label="Menu tài khoản">
+          <div className="menu-profile"><span className="avatar-mini">{avatar ? <img src={avatar} alt="" className="avatar-img" /> : initials}</span><span><strong>{displayName}</strong><small>{subline}</small></span></div>
+          <NavLink to="/my-profile" onClick={() => setMenuOpen(false)}><UserRound size={15} /> Hồ sơ của tôi</NavLink>
+          <NavLink to="/settings" onClick={() => setMenuOpen(false)}><Settings2 size={15} /> Cài đặt</NavLink>
+          <button type="button" onClick={onLogout}><LogOut size={15} /> Đăng xuất</button>
+        </div>
+      )}
+    </div>
+  </>;
+}
+
 function App() {
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const location = useLocation();
+  const sidebarAvatar = useAvatar(currentUser);
 
   useEffect(() => {
     try {
@@ -271,7 +387,7 @@ function App() {
         <div className="sidebar-bottom">
           <div className="broker-status" title="MQTT broker: Tắt trong cấu hình backend"><span className="status-dot status-dot-muted" /><span><strong>MQTT broker</strong><small>Tắt trong cấu hình backend</small></span><Wifi size={16} /></div>
           <div className="profile-block">
-            <NavLink to="/my-profile" className="profile-link" title={currentUser.fullName || currentUser.username}><span className="profile-avatar">{(currentUser.fullName || currentUser.username || 'U').split(' ').map((part) => part[0]).join('').slice(0,2).toUpperCase()}</span><span><strong>{currentUser.fullName || currentUser.username}</strong><small>{currentUser.roles?.[0] || 'Quản trị viên'}</small></span><ChevronDown size={15} /></NavLink>
+            <NavLink to="/my-profile" className="profile-link" title={currentUser.fullName || currentUser.username}><span className="profile-avatar">{sidebarAvatar ? <img src={sidebarAvatar} alt="" className="avatar-img" /> : (currentUser.fullName || currentUser.username || 'U').split(' ').map((part) => part[0]).join('').slice(0,2).toUpperCase()}</span><span><strong>{currentUser.fullName || currentUser.username}</strong><small>{roleLabel(currentUser.roles?.[0])}</small></span><ChevronDown size={15} /></NavLink>
             <button className="button button-secondary button-small logout-button" type="button" aria-label="Đăng xuất" title="Đăng xuất" onClick={handleLogout}><LogOut size={14} /><span>Đăng xuất</span></button>
           </div>
         </div>
@@ -280,10 +396,9 @@ function App() {
       <div className="workspace">
         <header className="topbar">
           <button className="icon-button menu-toggle" aria-label="Mở thanh điều hướng" aria-controls="main-sidebar" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
-          <div className="breadcrumb"><span>FloraCore</span><span className="breadcrumb-slash">/</span><strong>{getPageTitle(location.pathname)}</strong></div>
+          <div className="breadcrumb"><NavLink to="/dashboard" className="crumb-home" aria-label="Về Dashboard"><Home size={16} /></NavLink><span className="breadcrumb-slash">/</span><span>Greenhouse Network</span><span className="breadcrumb-slash">/</span><strong className="breadcrumb-current">{getPageTitle(location.pathname)}</strong></div>
           <div className="topbar-actions">
-            <span className="environment-tag"><span className="environment-dot" /> LOCAL ENVIRONMENT</span>
-            <button className="icon-button help-button" aria-label="Trợ giúp"><CircleHelp size={18} /></button>
+            <TopbarExtras currentUser={currentUser} onLogout={handleLogout} />
           </div>
         </header>
         <main className="page-content">
@@ -547,9 +662,22 @@ function MetricCard({ label, value, unit, icon: Icon, tone }) {
   return <article className="metric-card"><div className="metric-top"><span>{label}</span><span className={`metric-icon tone-${tone}`}><Icon size={17} /></span></div><div className="metric-reading">{value ?? '—'}<small>{unit}</small></div><div className="metric-footnote">{value == null ? 'Chưa nhận được bản ghi' : 'Giá trị mới nhất từ telemetry'}</div></article>;
 }
 
+const ACTUATOR_STORAGE_KEY = 'flora_actuators_v1';
+
+function loadActuatorState() {
+  const defaults = { fan: true, pump: false, lamp: true, custom: [] };
+  try {
+    const raw = localStorage.getItem(ACTUATOR_STORAGE_KEY);
+    if (!raw) return defaults;
+    return { ...defaults, ...JSON.parse(raw) };
+  } catch {
+    return defaults;
+  }
+}
+
 function Devices() {
-  const [devices, setDevices] = useState([]);
-  const [latestReadings, setLatestReadings] = useState({});
+  const [backendDevices, setBackendDevices] = useState([]);
+  const [latest, setLatest] = useState(null);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('ALL');
   const [page, setPage] = useState(0);
@@ -557,21 +685,29 @@ function Devices() {
   const [error, setError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [actuators, setActuators] = useState(loadActuatorState);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTUATOR_STORAGE_KEY, JSON.stringify(actuators));
+    } catch { /* storage unavailable */ }
+  }, [actuators]);
 
   async function loadDevices(showLoader = true) {
     if (showLoader) setLoading(true);
     try {
       const deviceData = await apiRequest('/api/devices');
-      const readings = await Promise.all(deviceData.map(async (device) => {
+      setBackendDevices(deviceData);
+      if (deviceData.length) {
         try {
-          const telemetry = await apiRequest(`/api/telemetry?deviceId=${encodeURIComponent(device.deviceId)}`);
-          return [device.deviceId, telemetry[0] || null];
+          const telemetry = await apiRequest(`/api/telemetry?deviceId=${encodeURIComponent(deviceData[0].deviceId)}`);
+          setLatest(telemetry[0] || null);
         } catch {
-          return [device.deviceId, null];
+          setLatest(null);
         }
-      }));
-      setDevices(deviceData);
-      setLatestReadings(Object.fromEntries(readings));
+      } else {
+        setLatest(null);
+      }
       setError('');
     }
     catch (requestError) { setError(requestError.message || 'Không thể tải danh sách thiết bị.'); }
@@ -590,50 +726,296 @@ function Devices() {
     setSaving(true);
     setError('');
     const form = new FormData(formElement);
-    const payload = Object.fromEntries(form.entries());
+    const kind = String(form.get('kind') || 'SENSOR_NODE');
+    const name = String(form.get('name') || '').trim();
     try {
-      await apiRequest('/api/devices', { method: 'POST', body: JSON.stringify(payload) });
+      if (kind === 'ACTUATOR') {
+        const type = String(form.get('actuatorType') || 'GENERIC');
+        const id = `local-${Date.now()}`;
+        setActuators((current) => ({
+          ...current,
+          custom: [...(current.custom || []), { id, name: name || 'Thiết bị mới', type, on: false, detail: 'Thiết bị thêm thủ công' }],
+        }));
+      } else {
+        const payload = {
+          deviceId: String(form.get('deviceId') || '').trim(),
+          name,
+          zone: String(form.get('zone') || '').trim(),
+          firmwareVersion: String(form.get('firmwareVersion') || '').trim() || undefined,
+        };
+        await apiRequest('/api/devices', { method: 'POST', body: JSON.stringify(payload) });
+        await loadDevices(false);
+      }
       setModalOpen(false);
       formElement.reset();
-      await loadDevices();
     } catch (requestError) {
-      setError(requestError.message || 'Không thể đăng ký thiết bị.');
+      setError(requestError.message || 'Không thể thêm thiết bị.');
     } finally { setSaving(false); }
   }
 
-  const filtered = (category === 'ACTUATORS' ? [] : devices).filter((device) => `${device.deviceId} ${device.name} ${device.zone} ${device.status}`.toLowerCase().includes(query.toLowerCase()));
+  // Telemetry older than this means the node stopped reporting.
+  const STALE_AFTER_MS = 5 * 60 * 1000;
+  const apiReachable = !error;
+  const hasNodes = backendDevices.length > 0;
+  const latestTime = latest?.timestamp ? new Date(latest.timestamp).getTime() : NaN;
+  const telemetryFresh = Number.isFinite(latestTime) && Date.now() - latestTime <= STALE_AFTER_MS;
+
+  // Sensor link state derived from real backend data — never hardcoded.
+  // down: backend unreachable | empty: no node registered | stale: no fresh telemetry | nodata: field missing.
+  function sensorLink(hasField) {
+    if (!apiReachable) return 'down';
+    if (!hasNodes) return 'empty';
+    if (!telemetryFresh) return 'stale';
+    if (!hasField) return 'nodata';
+    return 'active';
+  }
+
+  const temperature = latest?.temperature ?? null;
+  const humidity = latest?.humidity ?? null;
+  const soil = latest?.soilMoisture ?? null;
+  const light = latest?.light ?? null;
+
+  const sensorItems = [
+    {
+      id: 'sensor-temp-humi',
+      name: 'Cảm biến Nhiệt độ & Độ ẩm',
+      kind: 'SENSOR',
+      link: sensorLink(temperature != null || humidity != null),
+      icon: Thermometer,
+      iconTone: 'dev-icon-blue',
+      value: (
+        <span className="dev-value">
+          {temperature != null
+            ? <span className="dev-value-item"><Thermometer size={13} /> {Number(temperature).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}°C</span>
+            : <span className="dev-value-empty">— °C</span>}
+          <span className="dev-value-dot">•</span>
+          {humidity != null
+            ? <span className="dev-value-item"><Droplets size={13} /> {Number(humidity).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}% RH</span>
+            : <span className="dev-value-empty">— % RH</span>}
+        </span>
+      ),
+    },
+    {
+      id: 'sensor-soil',
+      name: 'Cảm biến Độ ẩm đất',
+      kind: 'SENSOR',
+      link: sensorLink(soil != null),
+      icon: Sprout,
+      iconTone: 'dev-icon-blue',
+      value: (
+        <span className="dev-value">
+          {soil != null
+            ? <>
+              <span className="dev-value-item"><Droplet size={13} /> <strong>{Number(soil).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}%</strong></span>
+              <span className="dev-value-note">(Tối ưu)</span>
+            </>
+            : <span className="dev-value-empty">Chưa có dữ liệu</span>}
+        </span>
+      ),
+    },
+    {
+      id: 'sensor-light',
+      name: 'Cường độ ánh sáng',
+      kind: 'SENSOR',
+      link: sensorLink(light != null),
+      icon: Sun,
+      iconTone: 'dev-icon-blue',
+      value: (
+        <span className="dev-value">
+          {light != null
+            ? <>
+              <span className="dev-value-item"><Sun size={13} /> <strong>{Number(light).toLocaleString('vi-VN', { maximumFractionDigits: 0 })} Lux</strong></span>
+              <span className="dev-value-note">(Đầy đủ)</span>
+            </>
+            : <span className="dev-value-empty">Chưa có dữ liệu</span>}
+        </span>
+      ),
+    },
+  ];
+
+  const actuatorItems = [
+    {
+      id: 'fan',
+      name: 'Quạt thông gió',
+      kind: 'ACTUATOR',
+      on: !!actuators.fan,
+      icon: Fan,
+      iconTone: 'dev-icon-green',
+      value: (
+        <span className="dev-value">
+          <span className="dev-value-item dev-value-muted"><Clock3 size={13} /> Tự động theo nhiệt (&gt;25°C)</span>
+        </span>
+      ),
+    },
+    {
+      id: 'pump',
+      name: 'Máy bơm tưới',
+      kind: 'ACTUATOR',
+      on: !!actuators.pump,
+      icon: Droplets,
+      iconTone: 'dev-icon-green',
+      value: (
+        <span className="dev-value">
+          <span className="dev-value-item dev-value-muted">{actuators.pump ? 'Đang tưới (còn 3 phút)' : 'Lần tưới gần nhất: 06:30'}</span>
+        </span>
+      ),
+    },
+    {
+      id: 'lamp',
+      name: 'Đèn quang hợp',
+      kind: 'ACTUATOR',
+      on: !!actuators.lamp,
+      icon: Lightbulb,
+      iconTone: 'dev-icon-green',
+      value: (
+        <span className="dev-value">
+          <span className="dev-value-item"><Sun size={13} /> Mức sáng 75%</span>
+        </span>
+      ),
+    },
+    ...(actuators.custom || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      kind: 'ACTUATOR',
+      on: !!item.on,
+      icon: Cpu,
+      iconTone: 'dev-icon-green',
+      value: (
+        <span className="dev-value">
+          <span className="dev-value-item dev-value-muted">{item.detail || 'Thiết bị thêm thủ công'}</span>
+        </span>
+      ),
+    })),
+  ];
+
+  const allItems = [...sensorItems, ...actuatorItems];
+  const sensorCount = sensorItems.length;
+  const actuatorCount = actuatorItems.length;
+  const actuatorOnCount = actuatorItems.filter((item) => item.on).length;
+  const activeSensorCount = sensorItems.filter((item) => item.link === 'active').length;
+  const allSensorsActive = sensorItems.length > 0 && sensorItems.every((item) => item.link === 'active');
+  const online = apiReachable && telemetryFresh;
+
+  const sensorLinkLabels = {
+    active: 'Đang hoạt động',
+    down: 'Mất kết nối',
+    empty: 'Chưa kết nối',
+    stale: 'Mất kết nối',
+    nodata: 'Chưa có dữ liệu',
+  };
+  const sensorLinkTones = {
+    active: 'dev-status-active',
+    down: 'dev-status-error',
+    empty: 'dev-status-off',
+    stale: 'dev-status-error',
+    nodata: 'dev-status-off',
+  };
+  const sensorLinkHint = {
+    active: latest?.timestamp ? `Telemetry lúc ${new Date(latest.timestamp).toLocaleString('vi-VN')}` : '',
+    down: 'Không kết nối được backend',
+    empty: 'Chưa có node nào đăng ký',
+    stale: 'Không nhận được telemetry mới quá 5 phút',
+    nodata: 'Bản tin mới nhất thiếu chỉ số này',
+  };
+
+  const filtered = allItems.filter((item) => {
+    if (category === 'SENSORS' && item.kind !== 'SENSOR') return false;
+    if (category === 'ACTUATORS' && item.kind !== 'ACTUATOR') return false;
+    return `${item.name} ${item.id}`.toLowerCase().includes(query.toLowerCase());
+  });
+
   const pageSize = 7;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const visibleDevices = filtered.slice(page * pageSize, (page + 1) * pageSize);
-  const onlineCount = devices.filter((device) => ['ACTIVE', 'ONLINE'].includes(device.status?.toUpperCase())).length;
-  const hasActuatorModel = false;
+  const safePage = Math.min(page, pageCount - 1);
+  const visibleItems = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   useEffect(() => { setPage(0); }, [query, category]);
 
   return (
     <>
-      <PageHeading eyebrow="HẠ TẦNG THIẾT BỊ" title="Thiết bị" description="Theo dõi cảm biến, kết nối và hoạt động của từng node." actions={<button className="button button-primary" onClick={() => setModalOpen(true)}><Plus size={17} /> Đăng ký thiết bị</button>} />
-      {error && <div className="notice notice-error"><AlertTriangle size={17} /><span>{error}</span></div>}
-      <section className="inventory-summary" aria-label="Tổng quan thiết bị">
-        <InventorySummaryCard icon={Radio} label="Cảm biến" value={devices.length} note="Node đã đăng ký" tone="inventory-sensor" />
-        <InventorySummaryCard icon={SlidersHorizontal} label="Thiết bị điều khiển" value={hasActuatorModel ? '—' : 'Chưa khai báo'} note="Backend chưa có loại actuator" tone="inventory-actuator" />
-        <InventorySummaryCard icon={Wifi} label="Kết nối" value={devices.length ? `${onlineCount} / ${devices.length}` : '—'} note={onlineCount ? 'Có node đang hoạt động' : 'Chưa có node trực tuyến'} tone="inventory-network" />
-      </section>
-      <section className="inventory-panel">
-        <div className="inventory-toolbar">
-          <div className="inventory-tabs" role="group" aria-label="Lọc loại thiết bị">
-            <button type="button" className={category === 'ALL' ? 'inventory-tab-active' : ''} aria-pressed={category === 'ALL'} onClick={() => setCategory('ALL')}><Cpu size={14} /> Tất cả <span>{devices.length}</span></button>
-            <button type="button" className={category === 'SENSORS' ? 'inventory-tab-active' : ''} aria-pressed={category === 'SENSORS'} onClick={() => setCategory('SENSORS')}><Radio size={14} /> Cảm biến <span>{devices.length}</span></button>
-            <button type="button" className={category === 'ACTUATORS' ? 'inventory-tab-active' : ''} aria-pressed={category === 'ACTUATORS'} onClick={() => setCategory('ACTUATORS')}><SlidersHorizontal size={14} /> Thiết bị điều khiển <span>0</span></button>
-          </div>
-          <div className="inventory-actions"><label className="inventory-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm kiếm thiết bị..." aria-label="Tìm kiếm thiết bị" /></label><button className="icon-button" type="button" aria-label="Làm mới thiết bị" title="Làm mới" onClick={() => loadDevices()} disabled={loading}><RefreshCw size={15} className={loading ? 'spin' : ''} /></button></div>
+      <div className="page-heading dev-heading">
+        <div>
+          <h1>Thiết bị &amp; Cảm biến</h1>
+          <p>Theo dõi các cảm biến và điều khiển thiết bị trong nhà kính.</p>
         </div>
-        <div className="inventory-table-heading"><div><strong>Danh sách thiết bị</strong><span>{filtered.length} thiết bị</span></div><span className="inventory-system-status"><i />{onlineCount ? 'Có thiết bị đang hoạt động' : 'Chưa có thiết bị trực tuyến'}</span></div>
-        {category === 'ACTUATORS' && <div className="inventory-empty-note"><Info size={17} /> Hệ thống hiện chưa có loại thiết bị điều khiển được khai báo.</div>}
-        {loading ? <div className="table-state"><LoaderCircle className="spin" size={21} /> Đang tải thiết bị...</div> : category === 'ACTUATORS' ? null : !visibleDevices.length ? <div className="table-state"><Cpu size={22} /><span>Chưa có thiết bị phù hợp.</span></div> : <DeviceInventoryTable devices={visibleDevices} latestReadings={latestReadings} />}
-        <div className="inventory-pagination"><span>Hiển thị {filtered.length ? page * pageSize + 1 : 0}–{Math.min((page + 1) * pageSize, filtered.length)} trên {filtered.length} thiết bị</span><div><button type="button" aria-label="Trang trước" disabled={page <= 0} onClick={() => setPage((current) => current - 1)}>‹</button><span>{page + 1}</span><button type="button" aria-label="Trang sau" disabled={page >= pageCount - 1} onClick={() => setPage((current) => current + 1)}>›</button></div></div>
+        <div className="heading-actions dev-heading-actions">
+          <button className="icon-button dev-refresh" type="button" aria-label="Làm mới thiết bị" title="Làm mới" onClick={() => loadDevices()} disabled={loading}><RefreshCw size={16} className={loading ? 'spin' : ''} /></button>
+          <button className="button button-primary dev-add" onClick={() => setModalOpen(true)}><Plus size={16} /> Thêm thiết bị</button>
+        </div>
+      </div>
+      {error && <div className="notice notice-error"><AlertTriangle size={17} /><span>{error}</span></div>}
+      <section className="dev-summary" aria-label="Tổng quan thiết bị">
+        <article className="dev-summary-card">
+          <div className="dev-summary-top"><span>Cảm biến</span><span className="dev-summary-icon dev-icon-blue"><Radio size={15} /></span></div>
+          <div className="dev-summary-main"><strong>{activeSensorCount}</strong><span>đang hoạt động</span></div>
+          <div className="dev-summary-note">Nhiệt độ, Độ ẩm, Đất, Ánh sáng</div>
+        </article>
+        <article className="dev-summary-card">
+          <div className="dev-summary-top"><span>Thiết bị điều khiển</span><span className="dev-summary-icon dev-icon-green"><Cpu size={15} /></span></div>
+          <div className="dev-summary-main"><strong>{actuatorOnCount} / {actuatorCount}</strong><span>đang bật</span></div>
+          <div className="dev-summary-note">Quạt, Đèn, Máy bơm</div>
+        </article>
+        <article className="dev-summary-card">
+          <div className="dev-summary-top"><span>Kết nối</span><span className="dev-summary-icon dev-icon-wifi"><Wifi size={15} /></span></div>
+          <div className={`dev-summary-main ${online ? 'dev-online' : 'dev-offline'}`}>{online ? 'Trực tuyến' : 'Ngoại tuyến'}</div>
+          <div className="dev-summary-note">{!apiReachable ? 'Không kết nối được backend' : !hasNodes ? 'Chưa có node nào đăng ký' : !telemetryFresh ? 'Không nhận được telemetry mới' : 'Tín hiệu ổn định (Sóng tốt)'}</div>
+        </article>
       </section>
-      {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false); }}><form className="modal" onSubmit={createDevice}><div className="modal-heading"><div><div className="section-kicker">THIẾT BỊ MỚI</div><h2>Đăng ký node</h2></div><button type="button" className="icon-button" aria-label="Đóng" onClick={() => setModalOpen(false)}><X size={18} /></button></div><label>Mã thiết bị<input name="deviceId" required maxLength="100" placeholder="GH01-ESP32-002" /></label><label>Tên thiết bị<input name="name" required maxLength="150" placeholder="Node khu thủy canh" /></label><label>Khu vực<input name="zone" required maxLength="50" placeholder="Hydroponic Bed 02" /></label><label>Phiên bản firmware<input name="firmwareVersion" maxLength="50" placeholder="1.0.0" /></label><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => setModalOpen(false)}>Hủy</button><button className="button button-primary" disabled={saving}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />} {saving ? 'Đang gửi...' : 'Đăng ký'}</button></div></form></div>}
+      <section className="dev-panel">
+        <div className="dev-toolbar">
+          <div className="dev-tabs" role="group" aria-label="Lọc loại thiết bị">
+            <button type="button" className={category === 'ALL' ? 'dev-tab-active' : ''} aria-pressed={category === 'ALL'} onClick={() => setCategory('ALL')}><Cpu size={13} /> Tất cả <span>{allItems.length}</span></button>
+            <button type="button" className={category === 'SENSORS' ? 'dev-tab-active' : ''} aria-pressed={category === 'SENSORS'} onClick={() => setCategory('SENSORS')}><Radio size={13} /> Cảm biến <span>{sensorCount}</span></button>
+            <button type="button" className={category === 'ACTUATORS' ? 'dev-tab-active' : ''} aria-pressed={category === 'ACTUATORS'} onClick={() => setCategory('ACTUATORS')}><Power size={13} /> Thiết bị điều khiển <span>{actuatorCount}</span></button>
+          </div>
+          <label className="dev-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm kiếm thiết bị..." aria-label="Tìm kiếm thiết bị" /></label>
+        </div>
+        <div className="dev-list-heading"><div><strong>Danh sách thiết bị</strong><span>{filtered.length} thiết bị</span></div><span className={`dev-system-status ${allSensorsActive ? '' : 'dev-system-warn'}`}><i />{allSensorsActive ? 'Hệ thống hoạt động bình thường' : !apiReachable ? 'Mất kết nối backend' : !hasNodes ? 'Chưa có node cảm biến nào' : 'Có cảm biến mất kết nối'}</span></div>
+        {loading ? <div className="table-state"><LoaderCircle className="spin" size={21} /> Đang tải thiết bị...</div> : !visibleItems.length ? <div className="table-state"><Cpu size={22} /><span>Chưa có thiết bị phù hợp.</span></div> : (
+          <div className="table-scroll dev-table-scroll">
+            <table className="dev-table">
+              <thead><tr><th>THIẾT BỊ</th><th>LOẠI</th><th>TRẠNG THÁI</th><th>GIÁ TRỊ / HOẠT ĐỘNG</th></tr></thead>
+              <tbody>
+                {visibleItems.map((item) => {
+                  const Icon = item.icon;
+                  const isSensor = item.kind === 'SENSOR';
+                  const active = isSensor ? item.link === 'active' : item.on;
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        <div className="dev-device-name">
+                          <span className={`dev-device-icon ${item.iconTone}`}><Icon size={16} /></span>
+                          <strong>{item.name}</strong>
+                        </div>
+                      </td>
+                      <td>
+                        {isSensor
+                          ? <span className="dev-kind"><Radio size={11} /> Cảm biến</span>
+                          : <span className="dev-kind"><Power size={11} /> Thiết bị</span>}
+                      </td>
+                      <td>
+                        {isSensor
+                          ? <span className={`dev-status ${sensorLinkTones[item.link]}`} title={sensorLinkHint[item.link]}><i />{sensorLinkLabels[item.link]}</span>
+                          : <span className={`dev-status ${active ? 'dev-status-on' : 'dev-status-off'}`}><i />{active ? 'Đang bật' : 'Đang tắt'}</span>}
+                      </td>
+                      <td>{item.value}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="dev-pagination">
+          <span>Hiển thị {filtered.length ? safePage * pageSize + 1 : 0} trên {filtered.length} thiết bị</span>
+          <div>
+            <button type="button" aria-label="Trang trước" disabled={safePage <= 0} onClick={() => setPage((current) => current - 1)}>‹</button>
+            <span className="dev-page-current">{safePage + 1}</span>
+            <button type="button" aria-label="Trang sau" disabled={safePage >= pageCount - 1} onClick={() => setPage((current) => current + 1)}>›</button>
+          </div>
+        </div>
+      </section>
+      {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false); }}><form className="modal" onSubmit={createDevice}><div className="modal-heading"><div><div className="section-kicker">THIẾT BỊ MỚI</div><h2>Thêm thiết bị</h2></div><button type="button" className="icon-button" aria-label="Đóng" onClick={() => setModalOpen(false)}><X size={18} /></button></div><label>Loại thiết bị<select name="kind" defaultValue="SENSOR_NODE"><option value="SENSOR_NODE">Node cảm biến (lưu vào backend)</option><option value="ACTUATOR">Thiết bị điều khiển (quạt / bơm / đèn)</option></select></label><label>Mã thiết bị (chỉ cho node cảm biến)<input name="deviceId" maxLength="100" placeholder="GH01-ESP32-002" /></label><label>Tên thiết bị<input name="name" required maxLength="150" placeholder="Ví dụ: Quạt thông gió" /></label><label>Khu vực<input name="zone" maxLength="50" placeholder="Nhà kính chính" /></label><label>Loại điều khiển (chỉ cho thiết bị điều khiển)<select name="actuatorType" defaultValue="GENERIC"><option value="FAN">Quạt</option><option value="PUMP">Máy bơm</option><option value="LAMP">Đèn</option><option value="GENERIC">Khác</option></select></label><label>Phiên bản firmware<input name="firmwareVersion" maxLength="50" placeholder="1.0.0" /></label><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => setModalOpen(false)}>Hủy</button><button className="button button-primary" disabled={saving}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />} {saving ? 'Đang gửi...' : 'Thêm'}</button></div></form></div>}
     </>
   );
 }

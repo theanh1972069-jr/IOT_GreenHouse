@@ -61,6 +61,9 @@ export async function apiRequest(path, options = {}) {
     const body = await response.text();
     let message = body;
     try { message = JSON.parse(body).message || body; } catch { /* response is not JSON */ }
+    if (typeof message === 'string' && message.trim().startsWith('<')) {
+      message = `Yêu cầu thất bại (${response.status})`;
+    }
     throw new Error(message || `Yêu cầu thất bại (${response.status})`);
   }
 

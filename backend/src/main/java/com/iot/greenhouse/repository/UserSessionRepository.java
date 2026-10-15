@@ -24,6 +24,9 @@ public interface UserSessionRepository extends JpaRepository<UserSession, Long> 
     Optional<UserSession> findActiveByTokenHash(@Param("tokenHash") String tokenHash,
                                                 @Param("now") ZonedDateTime now);
 
+    /** True while the user holds at least one live (non-revoked, non-expired) session. */
+    boolean existsByUserIdAndRevokedAtIsNullAndExpiresAtAfter(Long userId, ZonedDateTime now);
+
     Optional<UserSession> findByTokenHash(String tokenHash);
 
     long countByUserIdAndRevokedAtIsNull(Long userId);
