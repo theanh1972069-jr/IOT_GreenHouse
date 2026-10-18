@@ -24,6 +24,18 @@ public class Telemetry {
     @Column(nullable = false)
     private ZonedDateTime timestamp;
 
+    @Column(name = "sequence_number")
+    private Long sequenceNumber;
+
+    @Column(length = 50)
+    private String zone;
+
+    @Column(length = 20)
+    private String quality;
+
+    @Column(name = "firmware_version", length = 50)
+    private String firmwareVersion;
+
     @Column(precision = 6, scale = 2)
     private BigDecimal temperature;
 

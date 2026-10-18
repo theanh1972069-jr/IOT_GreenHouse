@@ -1,24 +1,39 @@
-# Firmware ESP32 — gửi dữ liệu cảm biến lên web
+# Firmware ESP32 — Node 1 / Node 2
 
 ## 1. Kiến trúc
 
 ```
-ESP32 ──MQTT──▶ Broker ──subscribe──▶ Spring Boot ──▶ PostgreSQL ──REST──▶ Web
+Node 1 (luôn bật) ──MQTT──┐
+                          ├──▶ Broker ──▶ Spring Boot ──▶ PostgreSQL ──REST──▶ Web
+Node 2 (ngủ sâu 15 phút) ─┘
 ```
 
-Backend **tự động lắng nghe**, bạn **không cần** gọi REST API từ firmware.
-Firmware chỉ việc `publish` JSON lên đúng topic là xong.
+Một sketch có thể nạp cho cả hai ESP32; chọn `node1` hoặc `node2` trên captive
+portal của từng board. Mỗi board phải có `device_id` riêng và đã được đăng ký
+trong dashboard.
+
+- **Node 1:** DHT22 + quạt (GPIO 33) + đèn (GPIO 32), luôn bật; quạt bật trên
+  30 °C và tắt dưới 28 °C.
+- **Node 2:** DHT22 + van (GPIO 25); gửi dữ liệu rồi deep sleep 15 phút. Cửa sổ
+  nhận lệnh sau khi gửi là 5 giây; nếu van đang mở, node giữ thức và tự đóng
+  sau tối đa 30 giây. Cảm biến đất là tùy chọn, mặc định tắt.
+
+Backend tự động nhận telemetry. Hiện backend chưa phát lệnh MQTT và firmware
+chưa gửi command acknowledgement; dashboard vì vậy chưa cung cấp điều khiển
+end-to-end.
 
 ## 2. Hợp đồng topic và payload
 
 | | |
 |---|---|
-| Topic | `greenhouse/{deviceId}/telemetry` |
-| Payload | JSON object, ví dụ `{"temperature":25.1,"humidity":58.3,"light":733.2}` |
+| Topic | `sh/home1/{deviceId}/telemetry` |
+| Payload | JSON object có metadata và đơn vị, ví dụ `{"device_id":"esp32-n1","ts":"2026-11-02T08:15:00Z","seq":1042,"zone":"livingroom","temp":{"v":25.1,"u":"C"},"hum":{"v":58.3,"u":"%"},"q":"ok","fw":"1.0.2"}` |
 
-Tên field được chấp nhận: `temperature`, `humidity`, `soilMoisture` (hoặc
-`soil_moisture`), `light`. Có thể gửi một phần — field vắng mặt sẽ lưu `NULL`.
-Field nào sai kiểu dữ liệu hoặc nằm ngoài phạm vi sẽ bị bỏ qua và ghi log.
+Backend vẫn chấp nhận payload phẳng cũ và topic cũ `greenhouse/{deviceId}/telemetry`
+để tương thích ngược. Với payload mới, `seq` được dùng để loại bản tin trùng;
+`ts` phải là ISO-8601 có múi giờ. Nhiệt độ được giới hạn trong dải DHT22 (-40..80 °C).
+Các trường đo có thể dùng cấu trúc `{ "v": số, "u": đơn_vị }`; giá trị lỗi hoặc
+ngoài dải bị loại và ghi log.
 
 ## 3. Ba điều kiện bắt buộc — thiếu một là hỏng
 
@@ -35,36 +50,39 @@ $env:MQTT_BROKER_URL="tcp://localhost:1883"
 .\mvnw.cmd spring-boot:run
 ```
 
-> Backend **phải khởi động sau khi broker** đã lên. Nếu broker chết rồi mới bật
-> lại, phải restart backend — nó subscribe một lần lúc startup và không tự
-> kết nối lại.
+> Backend tự reconnect khi broker tạm ngắt. Đảm bảo broker đã hoạt động trước
+> khi kiểm thử để tránh nhầm lỗi kết nối với lỗi thiết bị.
 
 ### c) `deviceId` phải tồn tại trong DB
 Nếu không, backend ghi `Received telemetry for unknown device` và **bỏ qua im lặng**.
 Tạo qua UI: admin → **Thiết bị** → đăng ký với mã khớp `DEVICE_ID` trong firmware.
 
-## 4. Firmware
+## 4. Firmware và phần cứng
 
-Source: `firmware/esp32_telemetry/esp32_telemetry.ino` (DHT22 + BH1750).
+Source: `firmware/esp32_telemetry/esp32_telemetry.ino`.
 
-Arduino IDE cài: **PubSubClient**, **Adafruit BH1750 Library**.
+Arduino IDE cài: **PubSubClient**, **DHT sensor library**, **Adafruit Unified
+Sensor**, **WiFiManager**.
 
-Sửa 4 giá trị:
+Trong captive portal cấu hình Wi-Fi, nhập:
 
-| Hằng số | Ghi gì |
+| Trường | Giá trị |
 |---|---|
-| `WIFI_SSID` / `WIFI_PASSWORD` | Wi-Fi nhà bạn |
-| `MQTT_HOST` | **IP LAN của PC**, không phải `localhost` |
-| `DEVICE_ID` | Khớp `devices.device_id` |
-| `MQTT_TOPIC` | Phải chứa đúng `DEVICE_ID` |
+| Wi-Fi | SSID và mật khẩu mạng 2,4 GHz |
+| MQTT server | **IP LAN của PC**, không phải `localhost` |
+| MQTT port | `1883` cho mạng thử nghiệm hiện tại |
+| Vai trò | `node1` hoặc `node2` |
+| Device ID | Riêng từng node và khớp `devices.device_id` |
+| Zone | `livingroom` cho Node 1, `balcony` cho Node 2 (hoặc zone đã đăng ký) |
 
 Tìm IP LAN:
 ```powershell
 ipconfig    # dòng IPv4 trên adapter Wi-Fi, ví dụ 192.168.1.8
 ```
 
-ESP32 chỉ gọi được broker trong cùng mạng LAN. Nếu dùng mạng công ty hoặc
-Wi-Fi khách (có "Client isolation"), ESP32 sẽ không mở được cổng 1883.
+Đây mới là cấu hình MQTT TCP/1883 cho mạng thử nghiệm LAN. Firmware hiện chưa
+cấu hình TLS 1.2/8883, credential MQTT riêng hoặc persistent session cho Node 2;
+không đưa bản firmware này ra Internet hoặc dùng với dữ liệu nhạy cảm.
 
 ## 5. Chẩn đoán khi không thấy dữ liệu
 
@@ -85,11 +103,12 @@ Test-NetConnection -ComputerName 192.168.1.8 -Port 1883
 
 # Tầng 4 — giả lập firmware (không cần ESP32)
 docker exec greenhouse-mqtt mosquitto_pub -h 192.168.1.8 `
-  -t 'greenhouse/esp32-01/telemetry' -q 1 `
-  -m '{"temperature":25.1,"humidity":58.3,"light":733.2}'
+  -t 'sh/home1/esp32-n1/telemetry' -q 0 `
+  -m '{"device_id":"esp32-n1","ts":"2026-11-02T08:15:00Z","seq":1042,"zone":"livingroom","temp":{"v":25.1,"u":"C"},"hum":{"v":58.3,"u":"%"},"q":"ok","fw":"1.0.2"}'
 ```
 
-Sau tầng 4, mở dashboard. Số liệu đổi sau tối đa 10 giây.
+Sau tầng 4, mở dashboard. Với Node 1, số liệu đổi sau tối đa khoảng 10 giây. Node 2 chỉ gửi sau mỗi lần
+thức dậy (mặc định 15 phút).
 
 > **Lưu ý về PowerShell:** `-m '{...}'` hay bị mất dấu nháy kép trong
 > PowerShell. Nếu nghi ngờ, dùng file thay cho chuỗi:
@@ -99,7 +118,7 @@ Sau tầng 4, mở dashboard. Số liệu đổi sau tối đa 10 giây.
 >   (New-Object System.Text.UTF8Encoding($false)))
 > docker cp "$env:TEMP\p.json" greenhouse-mqtt:/tmp/p.json
 > docker exec greenhouse-mqtt mosquitto_pub -h 192.168.1.8 `
->   -t 'greenhouse/esp32-01/telemetry' -q 1 -f /tmp/p.json
+>   -t 'sh/home1/esp32-n1/telemetry' -q 1 -f /tmp/p.json
 > ```
 
 ## 6. Đọc log backend
@@ -126,3 +145,12 @@ bị parser loại. Đọc thông điệp WARN ngay dưới để biết lý do.
 | Sáng đặc | Chưa có Wi-Fi hoặc chưa kết nối MQTT |
 
 Theo dõi bằng Serial Monitor ở **115200 baud**.
+
+## 8. Giới hạn và an toàn
+
+- Giới hạn van 30 giây là giá trị khởi điểm theo yêu cầu hiện tại; phải xác nhận
+  bằng lưu lượng thực tế trước khi nối tải. Dùng nguồn DC riêng và diode
+  flyback cho cuộn van; không đấu điện lưới.
+- Node 2 chưa có cơ chế persistent MQTT queue, vì vậy lệnh gửi trong lúc node
+  ngủ có thể bị bỏ lỡ. Điều khiển/ack end-to-end cần hoàn thành cùng API backend
+  và broker ACL trước khi nghiệm thu.

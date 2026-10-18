@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS devices (
                 'PROVISIONED',
                 'ACTIVE',
                 'OFFLINE',
+                'FAULT',
                 'MAINTENANCE',
                 'LOCKED',
                 'DECOMMISSIONED'
@@ -169,6 +170,14 @@ CREATE TABLE IF NOT EXISTS telemetry (
 
     timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
 
+    sequence_number BIGINT,
+
+    zone VARCHAR(50),
+
+    quality VARCHAR(20),
+
+    firmware_version VARCHAR(50),
+
     temperature NUMERIC(6,2),
 
     humidity NUMERIC(6,2),
@@ -206,6 +215,10 @@ ON telemetry(device_id, timestamp DESC);
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp
 ON telemetry(timestamp DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_device_sequence
+ON telemetry(device_id, sequence_number)
+WHERE sequence_number IS NOT NULL;
 
 -- commands
 CREATE TABLE IF NOT EXISTS commands (

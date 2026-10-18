@@ -30,6 +30,7 @@ public class AlertEvaluationService {
 
     static final String TYPE_TEMPERATURE_HIGH = "TEMPERATURE_HIGH";
     static final String TYPE_SOIL_MOISTURE_LOW = "SOIL_MOISTURE_LOW";
+    static final String TYPE_SENSOR_FAULT = "SENSOR_FAULT";
 
     /** Statuses that still count as "unresolved" for the duplicate guard. */
     private static final List<String> UNRESOLVED = List.of("OPEN", "ACKNOWLEDGED");
@@ -53,6 +54,11 @@ public class AlertEvaluationService {
                 ? DEFAULT_TEMPERATURE_HIGH : configuration.getTemperatureHigh();
         BigDecimal soilMoistureLow = configuration == null || configuration.getSoilMoistureLow() == null
                 ? DEFAULT_SOIL_MOISTURE_LOW : configuration.getSoilMoistureLow();
+
+        if ("sensor_fault".equalsIgnoreCase(telemetry.getQuality())) {
+            raise(device, TYPE_SENSOR_FAULT, "HIGH",
+                    "Thiết bị báo lỗi cảm biến; cần kiểm tra node và kết nối cảm biến.");
+        }
 
         if (telemetry.getTemperature() != null
                 && telemetry.getTemperature().compareTo(temperatureHigh) > 0) {

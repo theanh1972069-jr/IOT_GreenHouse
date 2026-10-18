@@ -14,6 +14,8 @@ import java.util.List;
 public interface TelemetryRepository extends JpaRepository<Telemetry, Long> {
     List<Telemetry> findByDeviceIdOrderByTimestampDesc(Long deviceId);
 
+    boolean existsByDevice_IdAndSequenceNumber(Long deviceId, Long sequenceNumber);
+
     /**
      * Deletes a bounded batch of rows older than the cutoff.
      *

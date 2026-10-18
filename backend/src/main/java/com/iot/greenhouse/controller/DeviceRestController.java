@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 public class DeviceRestController {
 
     private static final Set<String> ALLOWED_STATUSES = Set.of(
-            "REGISTERED", "PROVISIONED", "ACTIVE", "OFFLINE", "MAINTENANCE", "LOCKED", "DECOMMISSIONED");
+            "REGISTERED", "PROVISIONED", "ACTIVE", "OFFLINE", "FAULT", "MAINTENANCE", "LOCKED", "DECOMMISSIONED");
 
     private static final Pattern DEVICE_ID_PATTERN = Pattern.compile("[A-Za-z0-9._:-]{3,100}");
     private static final Pattern MAC_PATTERN = Pattern.compile("([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}");

@@ -54,9 +54,12 @@ BƯỚC 3: TRIỂN KHAI BACKEND (SPRING BOOT DOCKER WEB SERVICE)
      - DB_URL = <Dán Internal Database URL từ Database vừa tạo ở Bước 2>
      - DB_USERNAME = postgres
      - DB_PASSWORD = <Mật khẩu database Render tạo cho bạn>
-     - CORS_ALLOWED_ORIGINS = *
+     - CORS_ALLOWED_ORIGINS = https://greenhouse-frontend.onrender.com
+     - BOOTSTRAP_ADMIN_PASSWORD = <Mật khẩu mạnh riêng, chỉ nhập trong Render Dashboard>
      - MQTT_ENABLED = false  (Bật true nếu có Cloud MQTT Broker)
 5. Bấm "Create Web Service".
+   Tạo lần đầu cần đặt BOOTSTRAP_ADMIN_PASSWORD trước khi ứng dụng khởi động;
+   backend không còn tự tạo tài khoản với mật khẩu mặc định.
    Chờ Render build Docker image và khởi động. Khi thành công, bạn sẽ nhận được
    địa chỉ URL của backend (ví dụ: https://greenhouse-backend.onrender.com).
 
@@ -98,4 +101,7 @@ BƯỚC 5: LƯU Ý VỀ KẾT NỐI MQTT TỪ ESP32 LÊN CLOUD
 3. Khi có thông tin Broker Cloud:
      - Cấu hình lại biến MQTT_BROKER_URL, MQTT_USERNAME, MQTT_PASSWORD trên Backend Render.
      - Trên ESP32: Nhập địa chỉ Broker Cloud đó qua trang Web Portal (192.168.4.1).
+   Lưu ý: firmware hiện chưa thiết lập TLS/chứng thư CA; không dùng bản firmware này
+   để truyền dữ liệu nhạy cảm qua Internet. Chỉ dùng broker trong mạng thử nghiệm tin cậy
+   cho đến khi triển khai TLS thiết bị và ACL theo device_id.
 ================================================================================

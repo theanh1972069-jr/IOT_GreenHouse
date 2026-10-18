@@ -22,10 +22,12 @@ services:
         fromDatabase:
           name: greenhouse-db
           property: password
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
       - key: MQTT_ENABLED
         value: "false" # Đổi thành true khi cấu hình Cloud MQTT Broker
       - key: CORS_ALLOWED_ORIGINS
-        value: "*"
+        value: "https://greenhouse-frontend.onrender.com"
 
   # 2. Frontend React Vite (Static Site)
   - type: web

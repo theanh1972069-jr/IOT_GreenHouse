@@ -17,7 +17,8 @@ import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
 
 /**
- * MQTT transport for device telemetry. Subscribes to {@code greenhouse/{deviceId}/telemetry}
+ * MQTT transport for device telemetry. Subscribes to {@code sh/home1/{deviceId}/telemetry}
+ * and the legacy {@code greenhouse/{deviceId}/telemetry}
  * and hands the payload to {@link TelemetryPayloadParser}.
  *
  * <p>This class is a {@code @Configuration}, not a plain {@code @Component}, so that
@@ -31,7 +32,10 @@ import org.springframework.messaging.MessageHandler;
 @ConditionalOnProperty(name = "mqtt.enabled", havingValue = "true", matchIfMissing = false)
 public class MqttAdapter {
 
-    private static final String TOPIC = "greenhouse/+/telemetry";
+    private static final String[] TOPICS = {
+            "sh/home1/+/telemetry",
+            "greenhouse/+/telemetry"
+    };
 
     /**
      * Stable across restarts so the broker can resume the persistent session and hand
@@ -63,7 +67,7 @@ public class MqttAdapter {
         // the broker keys the queued session by id, so a random id per boot would
         // abandon everything it buffered while the backend was down.
         MqttPahoMessageDrivenChannelAdapter adapter =
-                new MqttPahoMessageDrivenChannelAdapter(CLIENT_ID, mqttClientFactory, TOPIC);
+                new MqttPahoMessageDrivenChannelAdapter(CLIENT_ID, mqttClientFactory, TOPICS);
         adapter.setCompletionTimeout(5000);
         adapter.setConverter(new DefaultPahoMessageConverter());
         adapter.setQos(1);
@@ -85,11 +89,21 @@ public class MqttAdapter {
         log.info("Received MQTT message on topic: {}", topic);
 
         String[] parts = topic.split("/");
-        if (parts.length < 3 || parts[1].isBlank()) {
+        String deviceId;
+        if (parts.length == 4 && "sh".equals(parts[0]) && "home1".equals(parts[1])
+                && "telemetry".equals(parts[3])) {
+            deviceId = parts[2];
+        } else if (parts.length == 3 && "greenhouse".equals(parts[0])
+                && "telemetry".equals(parts[2])) {
+            deviceId = parts[1];
+        } else {
             log.warn("Ignoring telemetry on unexpected topic: {}", topic);
             return;
         }
-        String deviceId = parts[1];
+        if (deviceId.isBlank()) {
+            log.warn("Ignoring telemetry with an empty device id on topic: {}", topic);
+            return;
+        }
 
         Telemetry telemetry = payloadParser.parse(payload, deviceId);
         if (telemetry == null) {

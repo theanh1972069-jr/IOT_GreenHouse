@@ -151,6 +151,21 @@ class AlertEvaluationServiceTest extends TestDatabase {
         assertThat(alertRepository.findAll()).isEmpty();
     }
 
+    @Test
+    void raisesAlertForSensorFaultQualityFlag() {
+        Telemetry telemetry = reading(null, null);
+        telemetry.setQuality("sensor_fault");
+
+        alertEvaluationService.evaluate(device, telemetry);
+
+        assertThat(alertRepository.findAll())
+                .singleElement()
+                .satisfies(alert -> {
+                    assertThat(alert.getType()).isEqualTo("SENSOR_FAULT");
+                    assertThat(alert.getSeverity()).isEqualTo("HIGH");
+                });
+    }
+
     // --- duplicate guard -----------------------------------------------------
 
     @Test

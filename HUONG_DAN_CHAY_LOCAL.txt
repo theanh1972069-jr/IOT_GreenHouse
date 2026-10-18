@@ -4,11 +4,13 @@
 
 1. KIẾN TRÚC TỔNG THỂ
 --------------------------------------------------------------------------------
-ESP32 (Cảm biến & Relay)
-   │ (MQTT qua port 1883)
+Node 1 (luôn bật) ──┐
+                    ├── MQTT/1883
+Node 2 (ngủ sâu) ───┘
+   │ topics sh/home1/{device_id}/telemetry
    ▼
 Mosquitto Broker (Port 1883)
-   │ (Subscribe topic: greenhouse/+/telemetry)
+   │ (Backend subscribe topic mới và topic greenhouse cũ)
    ▼
 Backend Spring Boot (Port 8080) ──▶ PostgreSQL Database (Port 5432)
    │ (REST API)
@@ -24,15 +26,16 @@ Frontend React / Vite (Port 5173 - Web Dashboard)
     Username: postgres
     Password: postgres
 
-- MQTT Broker (Mosquitto):
-    Host LAN: 192.168.1.220 | Port: 1883 (Lắng nghe 0.0.0.0, cho phép anonymous)
-    Topic Telemetry: greenhouse/esp32-01/telemetry
-    Topic Điều khiển: greenhouse/esp32-01/control
+- MQTT Broker (Mosquitto - cấu hình local/dev):
+    Host LAN: địa chỉ LAN của máy chạy Mosquitto | Port: 1883
+    Topic Telemetry mới: sh/home1/{device_id}/telemetry
+    Topic Telemetry tương thích ngược: greenhouse/{device_id}/telemetry
+    Firmware hiện chỉ nhận lệnh qua topic sh/home1/{device_id}/cmd hoặc
+    greenhouse/{device_id}/control; backend chưa phát lệnh MQTT.
 
 - Tài khoản đăng nhập Web:
-    Trang web: http://localhost:5173
-    Username: admin
-    Password: admin123
+    Tài khoản quản trị chỉ được tạo lần đầu nếu đã đặt BOOTSTRAP_ADMIN_PASSWORD.
+    Không dùng mật khẩu mặc định; tự chọn mật khẩu riêng trước khi chạy backend.
 
 
 3. CÁC BƯỚC KHỞI CHẠY HỆ THỐNG MỖI KHI BẬT MÁY
@@ -52,6 +55,10 @@ Mở cửa sổ PowerShell số 1:
     $env:DB_URL="jdbc:postgresql://localhost:5432/iot_greenhouse"
     $env:DB_USERNAME="postgres"
     $env:DB_PASSWORD="postgres"
+    $env:BOOTSTRAP_ADMIN_USERNAME="admin"
+    $env:BOOTSTRAP_ADMIN_EMAIL="admin@greenhouse.local"
+    $securePassword = Read-Host "Nhập mật khẩu quản trị" -AsSecureString
+    $env:BOOTSTRAP_ADMIN_PASSWORD = [System.Net.NetworkCredential]::new("", $securePassword).Password
     $env:MQTT_ENABLED="true"
     $env:MQTT_BROKER_URL="tcp://localhost:1883"
     .\mvnw.cmd spring-boot:run
@@ -64,27 +71,19 @@ Mở cửa sổ PowerShell số 2:
     cd c:\Users\Admin\Desktop\IOT_GreenHouse\frontend
     npm run dev
 
-Mở trình duyệt truy cập: http://localhost:5173
-Đăng nhập tài khoản: admin / admin123
+Mở trình duyệt truy cập: http://localhost:5173 và đăng nhập bằng tài khoản/mật khẩu
+đã cấu hình qua BOOTSTRAP_ADMIN_USERNAME và BOOTSTRAP_ADMIN_PASSWORD.
 
 
 4. CẤU HÌNH VÀ KẾT NỐI ESP32 VỚI SERVER
 --------------------------------------------------------------------------------
-1. Sơ đồ nối dây (Đã chốt):
-   - Nguồn:
-       ESP32 cắm cáp USB máy tính
-       VIN (5V) ESP32 -> DC+ Relay (chân ngoài cùng bên phải)
-       GND ESP32      -> Rail Xanh (Breadboard GND)
-       3V3 ESP32      -> Rail Đỏ (Breadboard 3.3V)
-       DC- Relay      -> Rail Xanh (GND chung)
-   - Cảm biến:
-       DHT22 : OUT -> D27  |  + -> Rail Đỏ (3.3V)  |  - -> Rail Xanh (GND)
-       HW-390: AOUT -> D35 |  VCC -> Rail Đỏ (3.3V)|  GND -> Rail Xanh (GND)
-   - Relay 4 kênh (Active LOW):
-       D25 -> IN1 (Van nước)
-       D33 -> IN2 (Quạt gió)
-       D32 -> IN3 (Đèn quang hợp)
-       IN4: Bỏ trống
+1. Phân bổ phần cứng theo thiết kế hai node:
+   - Node 1 (nguồn ổn định): DHT22 GPIO 27, relay quạt GPIO 33, relay đèn GPIO 32.
+   - Node 2 (pin): DHT22 GPIO 27, relay van GPIO 25. Cảm biến đất điện dung
+     tại GPIO 35 là phần mở rộng, firmware mặc định chưa bật.
+   - Mỗi node dùng ESP32 riêng. Không nối relay của cả ba tải vào một node.
+   - Tải quạt/đèn/van dùng nguồn DC riêng. Dùng chung GND theo thiết kế mạch;
+     van DC cần diode flyback. Không dùng điện lưới.
 
 2. Nạp code:
    - Mở file: firmware\esp32_telemetry\esp32_telemetry.ino trong Arduino IDE.
@@ -92,11 +91,18 @@ Mở trình duyệt truy cập: http://localhost:5173
    - Chọn Board "ESP32 Dev Module", chọn cổng COM và bấm Upload.
 
 3. Kết nối Wi-Fi qua Web Portal:
-   - Khi bật nguồn lần đầu, ESP32 phát Wi-Fi tên: "GreenHouse_ESP32_Setup" (Pass: 12345678).
+   - Khi bật nguồn lần đầu, ESP32 phát Wi-Fi tên "GreenHouse_ESP32_Setup";
+     mật khẩu ngẫu nhiên được in trong Serial Monitor ở 115200 baud.
    - Lấy điện thoại/laptop kết nối vào Wi-Fi đó -> Trang web tự bật (hoặc gõ 192.168.4.1).
    - Bấm "Configure WiFi" -> Chọn Wi-Fi nhà bạn và gõ mật khẩu.
-   - Các thông số IP Server (192.168.1.220), Cổng (1883), Device ID (esp32-01) đã điền sẵn.
-   - Bấm Save. ESP32 sẽ tự nhớ vào Flash và gửi dữ liệu về Dashboard mỗi 10 giây!
+   - Chọn vai trò `node1` hoặc `node2`, nhập IP broker, port 1883, device_id duy
+     nhất đã đăng ký và zone tương ứng. Node 1 mặc định là `esp32-n1/livingroom`,
+     Node 2 là `esp32-n2/balcony` khi cấu hình mới.
+   - Bấm Save. Node 1 giữ kết nối; Node 2 gửi telemetry rồi ngủ sâu 15 phút.
+     Firmware đồng bộ NTP và gửi `device_id/ts/seq/zone/q/fw`; nếu chưa có giờ
+     NTP, bản tin không được gửi.
+   - Quạt Node 1 dùng hysteresis 30/28 °C. Van Node 2 tự đóng sau tối đa 30
+     giây; phải xác nhận lưu lượng trước khi nối van thật.
 
    * Mẹo đổi Wi-Fi: Bấm giữ nút BOOT trên ESP32 trong 3 giây để xóa cấu hình và phát lại Wi-Fi Setup.
 
