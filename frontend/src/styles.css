@@ -1924,6 +1924,7 @@ tbody tr:hover { background: #fbfcfa; }
 }
 .rule-badge-temp { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
 .rule-badge-soil { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+.rule-badge-warm { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
 .rule-badge-manual { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 
 /* ACTUATOR MINI LIST INSIDE CARD 3 */
@@ -2103,6 +2104,11 @@ tbody tr:hover { background: #fbfcfa; }
 }
 :root[data-theme="dark"] .rule-desc {
   color: #94a3b8;
+}
+:root[data-theme="dark"] .rule-badge-warm {
+  background: #382407;
+  color: #fcd34d;
+  border-color: #5c3809;
 }
 :root[data-theme="dark"] .actuator-mini-item {
   background: #1b2921;

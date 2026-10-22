@@ -168,6 +168,9 @@ public class DeviceLiveService {
                     if (root.has("soilThreshold")) {
                         status.setSoilThreshold(root.get("soilThreshold").asDouble(status.getSoilThreshold()));
                     }
+                    if (root.has("lightTempThreshold")) {
+                        status.setLightTempThreshold(root.get("lightTempThreshold").asDouble(status.getLightTempThreshold()));
+                    }
 
                     // Check for individual actuator states
                     boolean valveState = root.has("valve") ? root.get("valve").asInt(0) == 1 : false;
@@ -213,6 +216,15 @@ public class DeviceLiveService {
                             status.setFanOverrideUntil(ZonedDateTime.now().plusSeconds(sec));
                         } else if (sec == 0) {
                             status.setFanOverrideUntil(null);
+                        }
+                    }
+                    if (root.has("lightOverrideSec")) {
+                        long sec = root.get("lightOverrideSec").asLong(0);
+                        status.setLightOverrideSeconds(sec);
+                        if (sec > 0 && status.getLightOverrideUntil() == null) {
+                            status.setLightOverrideUntil(ZonedDateTime.now().plusSeconds(sec));
+                        } else if (sec == 0) {
+                            status.setLightOverrideUntil(null);
                         }
                     }
 
@@ -333,6 +345,29 @@ public class DeviceLiveService {
             status.setFanOverrideSeconds(300L);
             status.setLastAlertMessage(msg);
             scheduleAutoRevert(deviceId, "fan", 5);
+
+        } else if ("light".equalsIgnoreCase(actuatorId)) {
+            Double temp = status.getTemperature();
+            Double threshold = status.getLightTempThreshold();
+            double currentTemp = temp != null ? temp : 0.0;
+            double currentThresh = threshold != null ? threshold : 20.0;
+
+            String msg;
+            if (turnOn) {
+                if (currentTemp >= currentThresh) {
+                    msg = String.format("Thiết bị đang có nhiệt độ (%.1f°C) không ở ngưỡng bật đèn (< %.0f°C), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentTemp, currentThresh);
+                } else {
+                    msg = String.format("Thiết bị đã được bật đèn quang hợp thủ công (nhiệt độ hiện tại %.1f°C, ngưỡng < %.0f°C), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentTemp, currentThresh);
+                }
+            } else {
+                msg = String.format("Thiết bị đã được tắt đèn quang hợp thủ công (nhiệt độ hiện tại %.1f°C, ngưỡng < %.0f°C), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentTemp, currentThresh);
+            }
+
+            raiseManualOverrideAlert(deviceId, "TEMPERATURE", msg);
+            status.setLightOverrideUntil(ZonedDateTime.now().plusMinutes(5));
+            status.setLightOverrideSeconds(300L);
+            status.setLastAlertMessage(msg);
+            scheduleAutoRevert(deviceId, "light", 5);
         }
 
         updateActuatorState(status, actuatorId, turnOn);
@@ -397,6 +432,18 @@ public class DeviceLiveService {
                             controlActuatorInternal(deviceId, "fan", false);
                         }
                     }
+                } else if ("light".equalsIgnoreCase(actuatorId)) {
+                    Double temp = live.getTemperature();
+                    Double threshold = live.getLightTempThreshold();
+                    if (temp != null && threshold != null) {
+                        if (temp < threshold && !isActuatorOn(live, "light")) {
+                            log.info("Auto-reverting light to ON for device {}: temp={} < threshold={}", deviceId, temp, threshold);
+                            controlActuatorInternal(deviceId, "light", true);
+                        } else if (temp >= (threshold + 2.0) && isActuatorOn(live, "light")) {
+                            log.info("Auto-reverting light to OFF for device {}: temp={} >= thresholdOff", deviceId, temp);
+                            controlActuatorInternal(deviceId, "light", false);
+                        }
+                    }
                 }
             } catch (Exception ex) {
                 log.error("Error executing auto-revert for device {}: {}", deviceId, ex.getMessage());
@@ -446,12 +493,14 @@ public class DeviceLiveService {
      */
     @Transactional
     public DeviceLiveStatus updateThresholds(String deviceId, BigDecimal temperatureHigh,
-                                             BigDecimal soilMoistureLow, Boolean autoMode,
+                                             BigDecimal soilMoistureLow, BigDecimal lightTempLow,
+                                             Boolean autoMode,
                                              User actor, HttpServletRequest httpRequest) {
         DeviceLiveStatus status = getOrCreateLiveStatus(deviceId);
 
         if (temperatureHigh != null) status.setTempThreshold(temperatureHigh.doubleValue());
         if (soilMoistureLow != null) status.setSoilThreshold(soilMoistureLow.doubleValue());
+        if (lightTempLow != null) status.setLightTempThreshold(lightTempLow.doubleValue());
         if (autoMode != null) status.setAutoMode(autoMode);
 
         // Persist to DeviceConfiguration table
@@ -471,9 +520,10 @@ public class DeviceLiveService {
         String topic = "greenhouse/" + deviceId + "/control";
         String payload = String.format(
                 java.util.Locale.US,
-                "{\"tempThreshold\":%.1f,\"soilThreshold\":%.1f,\"auto\":%d}",
+                "{\"tempThreshold\":%.1f,\"soilThreshold\":%.1f,\"lightTempThreshold\":%.1f,\"auto\":%d}",
                 status.getTempThreshold(),
                 status.getSoilThreshold(),
+                status.getLightTempThreshold(),
                 status.isAutoMode() ? 1 : 0
         );
         mqttPublisherService.publish(topic, payload);
@@ -482,6 +532,7 @@ public class DeviceLiveService {
             auditLogService.record(actor, httpRequest, "DEVICE_THRESHOLD_UPDATE", "Device",
                     deviceId, Map.of("tempThreshold", status.getTempThreshold(),
                             "soilThreshold", status.getSoilThreshold(),
+                            "lightTempThreshold", status.getLightTempThreshold(),
                             "auto", status.isAutoMode()));
         }
 

@@ -79,10 +79,17 @@ public class DeviceControlRestController {
             return ResponseEntity.badRequest().body(new ApiError("Ngưỡng độ ẩm đất phải từ 0% đến 100%."));
         }
 
+        if (request.lightTempLow() != null &&
+                (request.lightTempLow().compareTo(BigDecimal.valueOf(5)) < 0 ||
+                 request.lightTempLow().compareTo(BigDecimal.valueOf(45)) > 0)) {
+            return ResponseEntity.badRequest().body(new ApiError("Ngưỡng nhiệt độ bật đèn phải từ 5°C đến 45°C."));
+        }
+
         DeviceLiveStatus updated = deviceLiveService.updateThresholds(
                 deviceId,
                 request.temperatureHigh(),
                 request.soilMoistureLow(),
+                request.lightTempLow(),
                 request.autoMode(),
                 actor,
                 httpRequest
@@ -134,7 +141,7 @@ public class DeviceControlRestController {
     }
 
     public record ControlRequest(String actuator, Boolean state, Boolean autoMode) {}
-    public record ThresholdsRequest(BigDecimal temperatureHigh, BigDecimal soilMoistureLow, Boolean autoMode) {}
+    public record ThresholdsRequest(BigDecimal temperatureHigh, BigDecimal soilMoistureLow, BigDecimal lightTempLow, Boolean autoMode) {}
     public record QuickActionRequest(String action) {}
     public record ApiError(String message) {}
 }

@@ -541,18 +541,22 @@ function Dashboard() {
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdTemp, setThresholdTemp] = useState(35.0);
   const [thresholdSoil, setThresholdSoil] = useState(30.0);
+  const [thresholdLightTemp, setThresholdLightTemp] = useState(20.0);
   const [draftTemp, setDraftTemp] = useState(35.0);
   const [draftSoil, setDraftSoil] = useState(30.0);
+  const [draftLightTemp, setDraftLightTemp] = useState(20.0);
   const [savingThreshold, setSavingThreshold] = useState(false);
 
   useEffect(() => {
     if (liveStatus?.tempThreshold != null) setThresholdTemp(liveStatus.tempThreshold);
     if (liveStatus?.soilThreshold != null) setThresholdSoil(liveStatus.soilThreshold);
-  }, [liveStatus?.tempThreshold, liveStatus?.soilThreshold]);
+    if (liveStatus?.lightTempThreshold != null) setThresholdLightTemp(liveStatus.lightTempThreshold);
+  }, [liveStatus?.tempThreshold, liveStatus?.soilThreshold, liveStatus?.lightTempThreshold]);
 
   function openThresholdModal() {
     setDraftTemp(thresholdTemp);
     setDraftSoil(thresholdSoil);
+    setDraftLightTemp(thresholdLightTemp);
     setShowThresholdModal(true);
   }
 
@@ -566,6 +570,7 @@ function Dashboard() {
         body: JSON.stringify({
           temperatureHigh: parseFloat(draftTemp),
           soilMoistureLow: parseFloat(draftSoil),
+          lightTempLow: parseFloat(draftLightTemp),
           autoMode: liveStatus?.autoMode ?? true,
         }),
       });
@@ -573,6 +578,7 @@ function Dashboard() {
         setLiveStatus(updated);
         setThresholdTemp(parseFloat(draftTemp));
         setThresholdSoil(parseFloat(draftSoil));
+        setThresholdLightTemp(parseFloat(draftLightTemp));
       }
       setShowThresholdModal(false);
     } catch (err) {
@@ -746,8 +752,8 @@ function Dashboard() {
                   <span className="rule-device-name">Đèn quang hợp</span>
                 </div>
                 <div className="threshold-condition">
-                  <span className="rule-desc">Kích hoạt:</span>
-                  <span className="rule-badge rule-badge-manual">Thủ công</span>
+                  <span className="rule-desc">Bật khi thấp hơn:</span>
+                  <span className="rule-badge rule-badge-warm">&lt; {thresholdLightTemp}°C</span>
                 </div>
               </div>
             </div>
@@ -821,7 +827,7 @@ function Dashboard() {
             <form onSubmit={handleSaveThresholds}>
               <div className="threshold-dialog-body">
                 <p style={{ margin: 0, fontSize: 12, color: '#52665a' }}>
-                  Các giá trị ngưỡng dưới đây sẽ được lưu trữ và truyền trực tiếp xuống bộ vi điều khiển ESP32 qua giao thức MQTT để tự động bật/tắt Quạt và Van tưới.
+                  Các giá trị ngưỡng dưới đây sẽ được lưu trữ và truyền trực tiếp xuống bộ vi điều khiển ESP32 qua giao thức MQTT để tự động bật/tắt Quạt, Van tưới và Đèn quang hợp.
                 </p>
 
                 <div className="threshold-form-group">
@@ -924,6 +930,57 @@ function Dashboard() {
                     </div>
                   </div>
                   <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, ESP32 sẽ tự động mở van tưới (GPIO 25 · IN1) cấp nước.</small>
+                </div>
+
+                <div className="threshold-form-group" style={{ marginTop: 12 }}>
+                  <label>
+                    <span>Ngưỡng nhiệt độ bật đèn quang hợp:</span>
+                    <strong>&lt; {draftLightTemp}°C</strong>
+                  </label>
+                  <div className="threshold-stepper-row">
+                    <div className="threshold-stepper-box">
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-minus"
+                        onClick={() => setDraftLightTemp((prev) => Math.max(5, Number((prev - 0.5).toFixed(1))))}
+                        title="Giảm 0.5°C"
+                        aria-label="Giảm 0.5°C"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <input
+                        type="number"
+                        className="threshold-val-input stepper-input"
+                        value={draftLightTemp}
+                        step="0.5"
+                        min="5"
+                        max="40"
+                        onChange={(e) => setDraftLightTemp(parseFloat(e.target.value) || 0)}
+                      />
+                      <span className="stepper-unit-badge">°C</span>
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-plus"
+                        onClick={() => setDraftLightTemp((prev) => Math.min(40, Number((prev + 0.5).toFixed(1))))}
+                        title="Tăng 0.5°C"
+                        aria-label="Tăng 0.5°C"
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </div>
+
+                    <div className="threshold-slider-flex">
+                      <input
+                        type="range"
+                        min="5"
+                        max="40"
+                        step="0.5"
+                        value={draftLightTemp}
+                        onChange={(e) => setDraftLightTemp(parseFloat(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ không khí &lt; ngưỡng này (trời lạnh/thiếu nhiệt), ESP32 sẽ tự động bật đèn sưởi quang hợp (GPIO 32 · IN3).</small>
                 </div>
               </div>
 
@@ -1123,13 +1180,16 @@ function Devices() {
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdTemp, setThresholdTemp] = useState(35.0);
   const [thresholdSoil, setThresholdSoil] = useState(30.0);
+  const [thresholdLightTemp, setThresholdLightTemp] = useState(20.0);
   const [draftTemp, setDraftTemp] = useState(35.0);
   const [draftSoil, setDraftSoil] = useState(30.0);
+  const [draftLightTemp, setDraftLightTemp] = useState(20.0);
   const [savingThreshold, setSavingThreshold] = useState(false);
 
   function openThresholdModal() {
     setDraftTemp(thresholdTemp);
     setDraftSoil(thresholdSoil);
+    setDraftLightTemp(thresholdLightTemp);
     setShowThresholdModal(true);
   }
 
@@ -1156,6 +1216,7 @@ function Devices() {
             setLiveStatus(live);
             if (live.tempThreshold != null) setThresholdTemp(live.tempThreshold);
             if (live.soilThreshold != null) setThresholdSoil(live.soilThreshold);
+            if (live.lightTempThreshold != null) setThresholdLightTemp(live.lightTempThreshold);
             if (live.actuators) {
               const isLiveOnline = Boolean(live.online);
               const fanAct = live.actuators.find((a) => a.id === 'fan');
@@ -1258,7 +1319,7 @@ function Devices() {
     }
   }
 
-  async function handleSaveThresholds(e) {
+    async function handleSaveThresholds(e) {
     if (e) e.preventDefault();
     const devId = backendDevices[0]?.deviceId || 'esp32-01';
     setSavingThreshold(true);
@@ -1268,6 +1329,7 @@ function Devices() {
         body: JSON.stringify({
           temperatureHigh: parseFloat(draftTemp),
           soilMoistureLow: parseFloat(draftSoil),
+          lightTempLow: parseFloat(draftLightTemp),
           autoMode: liveStatus?.autoMode ?? true,
         }),
       });
@@ -1275,6 +1337,7 @@ function Devices() {
         setLiveStatus(updated);
         setThresholdTemp(parseFloat(draftTemp));
         setThresholdSoil(parseFloat(draftSoil));
+        setThresholdLightTemp(parseFloat(draftLightTemp));
       }
       setShowThresholdModal(false);
     } catch (err) {
@@ -1431,7 +1494,7 @@ function Devices() {
       iconTone: online && actuators.lamp ? 'dev-icon-green' : 'dev-icon-blue',
       rule: (
         <span className="dev-rule-text">
-          <Lightbulb size={13} /> Điều khiển thủ công
+          <Lightbulb size={13} /> Tự động khi nhiệt &lt; {thresholdLightTemp}°C
         </span>
       ),
     },
@@ -1656,7 +1719,7 @@ function Devices() {
             <form onSubmit={handleSaveThresholds}>
               <div className="threshold-dialog-body">
                 <p style={{ margin: 0, fontSize: 12, color: '#52665a' }}>
-                  Các giá trị ngưỡng dưới đây sẽ được lưu trữ và truyền trực tiếp xuống bộ vi điều khiển ESP32 qua giao thức MQTT để tự động bật/tắt Quạt và Van tưới.
+                  Các giá trị ngưỡng dưới đây sẽ được lưu trữ và truyền trực tiếp xuống bộ vi điều khiển ESP32 qua giao thức MQTT để tự động bật/tắt Quạt, Van tưới và Đèn quang hợp.
                 </p>
 
                 <div className="threshold-form-group">
@@ -1759,6 +1822,57 @@ function Devices() {
                     </div>
                   </div>
                   <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, ESP32 sẽ tự động mở van tưới (GPIO 25 · IN1) cấp nước.</small>
+                </div>
+
+                <div className="threshold-form-group" style={{ marginTop: 12 }}>
+                  <label>
+                    <span>Ngưỡng nhiệt độ bật đèn quang hợp:</span>
+                    <strong>&lt; {draftLightTemp}°C</strong>
+                  </label>
+                  <div className="threshold-stepper-row">
+                    <div className="threshold-stepper-box">
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-minus"
+                        onClick={() => setDraftLightTemp((prev) => Math.max(5, Number((prev - 0.5).toFixed(1))))}
+                        title="Giảm 0.5°C"
+                        aria-label="Giảm 0.5°C"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <input
+                        type="number"
+                        className="threshold-val-input stepper-input"
+                        value={draftLightTemp}
+                        step="0.5"
+                        min="5"
+                        max="40"
+                        onChange={(e) => setDraftLightTemp(parseFloat(e.target.value) || 0)}
+                      />
+                      <span className="stepper-unit-badge">°C</span>
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-plus"
+                        onClick={() => setDraftLightTemp((prev) => Math.min(40, Number((prev + 0.5).toFixed(1))))}
+                        title="Tăng 0.5°C"
+                        aria-label="Tăng 0.5°C"
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </div>
+
+                    <div className="threshold-slider-flex">
+                      <input
+                        type="range"
+                        min="5"
+                        max="40"
+                        step="0.5"
+                        value={draftLightTemp}
+                        onChange={(e) => setDraftLightTemp(parseFloat(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ không khí &lt; ngưỡng này (trời lạnh/thiếu nhiệt), ESP32 sẽ tự động bật đèn sưởi quang hợp (GPIO 32 · IN3).</small>
                 </div>
               </div>
 

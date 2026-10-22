@@ -97,10 +97,12 @@ bool lightState = false;
 bool autoControlMode = true;
 
 // Ngưỡng điều khiển (có thể cập nhật động trực tiếp từ Web Dashboard qua MQTT)
-float tempThreshold    = 35.0; // Bật quạt khi nhiệt độ > tempThreshold
-float tempThresholdOff = 30.0; // Tắt quạt khi nhiệt độ <= tempThresholdOff
-int   soilThreshold    = 30;   // Bật van khi độ ẩm đất < soilThreshold
-int   soilThresholdOff = 60;   // Tắt van khi độ ẩm đất >= soilThresholdOff
+float tempThreshold         = 35.0; // Bật quạt khi nhiệt độ > tempThreshold
+float tempThresholdOff      = 30.0; // Tắt quạt khi nhiệt độ <= tempThresholdOff
+int   soilThreshold         = 30;   // Bật van khi độ ẩm đất < soilThreshold
+int   soilThresholdOff      = 60;   // Tắt van khi độ ẩm đất >= soilThresholdOff
+float lightTempThreshold    = 20.0; // Bật đèn khi nhiệt độ < lightTempThreshold (mặc định < 20°C)
+float lightTempThresholdOff = 22.0; // Tắt đèn khi nhiệt độ >= lightTempThresholdOff (đủ ấm)
 
 // ==============================================================================
 // CÔNG SUẤT THỰC TẾ CỦA THIẾT BỊ (Watts = Volt * Ampere):
@@ -117,6 +119,7 @@ const float RATED_LIGHT_W = 9.6; // Đèn LED 12V ~9.6W
 const uint32_t MANUAL_OVERRIDE_DURATION_MS = 300000UL;
 uint32_t valveOverrideUntilMs = 0;
 uint32_t fanOverrideUntilMs   = 0;
+uint32_t lightOverrideUntilMs = 0;
 
 static const uint32_t READ_INTERVAL_MS    = 2000;   // Đọc cảm biến mỗi 2 giây
 static const uint32_t PUBLISH_INTERVAL_MS = 10000;  // Gửi lên server mỗi 10 giây
@@ -256,11 +259,15 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
 
   if (message.indexOf("\"light\":1") >= 0) {
     lightState = true;
-    setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3)");
+    lightOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+    setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3) [THỦ CÔNG]");
+    Serial.println(F("[THỦ CÔNG] Bật đèn quang hợp. Tạm dừng tự động hóa đèn 5 phút. Cảm biến vẫn đo bình thường."));
     stateChanged = true;
   } else if (message.indexOf("\"light\":0") >= 0) {
     lightState = false;
-    setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3)");
+    lightOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+    setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [THỦ CÔNG]");
+    Serial.println(F("[THỦ CÔNG] Tắt đèn quang hợp. Tạm dừng tự động hóa đèn 5 phút. Cảm biến vẫn đo bình thường."));
     stateChanged = true;
   }
 
@@ -298,6 +305,20 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
       Serial.print(F("[CẤU HÌNH WEB] Đã nhận ngưỡng độ ẩm đất bật tưới: < "));
       Serial.print(soilThreshold);
       Serial.println(F(" %"));
+      stateChanged = true;
+    }
+  }
+
+  // Nhận ngưỡng nhiệt độ bật đèn quang hợp cập nhật trực tiếp từ Web
+  int lightTempIdx = message.indexOf("\"lightTempThreshold\":");
+  if (lightTempIdx >= 0) {
+    float newLightTemp = message.substring(lightTempIdx + 21).toFloat();
+    if (newLightTemp >= 5.0 && newLightTemp <= 45.0) {
+      lightTempThreshold = newLightTemp;
+      lightTempThresholdOff = min(45.0f, lightTempThreshold + 2.0f);
+      Serial.print(F("[CẤU HÌNH WEB] Đã nhận ngưỡng nhiệt độ bật đèn quang hợp: < "));
+      Serial.print(lightTempThreshold, 1);
+      Serial.println(F(" °C"));
       stateChanged = true;
     }
   }
@@ -354,21 +375,22 @@ void publishTelemetry() {
 
   uint32_t valveRemSec = (millis() < valveOverrideUntilMs) ? ((valveOverrideUntilMs - millis()) / 1000) : 0;
   uint32_t fanRemSec   = (millis() < fanOverrideUntilMs)   ? ((fanOverrideUntilMs - millis()) / 1000) : 0;
+  uint32_t lightRemSec = (millis() < lightOverrideUntilMs) ? ((lightOverrideUntilMs - millis()) / 1000) : 0;
 
   snprintf(jsonBuffer, sizeof(jsonBuffer),
            "{\"temperature\":%.1f,\"humidity\":%.1f,\"soilMoisture\":%d,\"auto\":%d,"
-           "\"tempThreshold\":%.1f,\"soilThreshold\":%d,\"totalPowerW\":%.1f,"
+           "\"tempThreshold\":%.1f,\"soilThreshold\":%d,\"lightTempThreshold\":%.1f,\"totalPowerW\":%.1f,"
            "\"valve\":%d,\"fan\":%d,\"light\":%d,"
-           "\"valveOverrideSec\":%u,\"fanOverrideSec\":%u,"
+           "\"valveOverrideSec\":%u,\"fanOverrideSec\":%u,\"lightOverrideSec\":%u,"
            "\"actuators\":["
              "{\"id\":\"valve\",\"name\":\"Van tưới nước (IN1)\",\"pin\":\"GPIO 25 (IN1)\",\"type\":\"VALVE\",\"state\":%d,\"powerW\":%.1f,\"ratedW\":%.1f},"
              "{\"id\":\"fan\",\"name\":\"Quạt thông gió (IN2)\",\"pin\":\"GPIO 33 (IN2)\",\"type\":\"FAN\",\"state\":%d,\"powerW\":%.1f,\"ratedW\":%.1f},"
              "{\"id\":\"light\",\"name\":\"Đèn quang hợp (IN3)\",\"pin\":\"GPIO 32 (IN3)\",\"type\":\"LIGHT\",\"state\":%d,\"powerW\":%.1f,\"ratedW\":%.1f}"
            "]}",
            airTemp, airHumidity, soilMoisture, autoControlMode ? 1 : 0,
-           tempThreshold, soilThreshold, totalPower,
+           tempThreshold, soilThreshold, lightTempThreshold, totalPower,
            valveState ? 1 : 0, fanState ? 1 : 0, lightState ? 1 : 0,
-           valveRemSec, fanRemSec,
+           valveRemSec, fanRemSec, lightRemSec,
            valveState ? 1 : 0, valvePower, RATED_VALVE_W,
            fanState ? 1 : 0, fanPower, RATED_FAN_W,
            lightState ? 1 : 0, lightPower, RATED_LIGHT_W);
@@ -597,6 +619,27 @@ void loop() {
       } else {
         uint32_t remSec = (fanOverrideUntilMs > millis()) ? ((fanOverrideUntilMs - millis()) / 1000) : 0;
         Serial.print(F("[KHÓA TỰ ĐỘNG] Quạt gió đang được giữ thủ công, còn "));
+        Serial.print(remSec);
+        Serial.println(F(" giây trước khi tự động kích hoạt lại."));
+      }
+
+      // 3. Tự động đèn quang hợp (bật khi nhiệt độ < lightTempThreshold, bỏ qua nếu đang trong 5 phút can thiệp thủ công)
+      if (lightOverrideUntilMs != 0 && millis() >= lightOverrideUntilMs) {
+        lightOverrideUntilMs = 0; // Đã hết 5 phút can thiệp thủ công
+        Serial.println(F("[TỰ ĐỘNG] Hết 5 phút can thiệp thủ công của Đèn quang hợp. Trở lại chế độ tự động theo ngưỡng."));
+      }
+
+      if (lightOverrideUntilMs == 0) {
+        if (dhtValid && airTemp < lightTempThreshold && !lightState) {
+          lightState = true;
+          setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3) [TỰ ĐỘNG - Nhiệt độ thấp]");
+        } else if (dhtValid && airTemp >= lightTempThresholdOff && lightState) {
+          lightState = false;
+          setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [TỰ ĐỘNG - Đủ ấm]");
+        }
+      } else {
+        uint32_t remSec = (lightOverrideUntilMs > millis()) ? ((lightOverrideUntilMs - millis()) / 1000) : 0;
+        Serial.print(F("[KHÓA TỰ ĐỘNG] Đèn quang hợp đang được giữ thủ công, còn "));
         Serial.print(remSec);
         Serial.println(F(" giây trước khi tự động kích hoạt lại."));
       }
