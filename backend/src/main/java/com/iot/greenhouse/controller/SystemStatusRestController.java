@@ -14,7 +14,7 @@ public class SystemStatusRestController {
 
     @GetMapping("/status")
     public SystemStatus getStatus() {
-        return new SystemStatus(mqttEnabled, false);
+        return new SystemStatus(mqttEnabled, true);
     }
 
     public record SystemStatus(boolean mqttEnabled, boolean commandProtocolConfigured) {}
