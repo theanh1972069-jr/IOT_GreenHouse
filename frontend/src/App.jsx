@@ -537,6 +537,9 @@ function Dashboard() {
     }
   }
 
+  const hasTempHumi = Boolean(isDeviceOnline && latest && (latest.temperature != null || latest.humidity != null));
+  const hasSoil = Boolean(isDeviceOnline && latest && latest.soilMoisture != null);
+
   const [busyActuator, setBusyActuator] = useState(null);
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdTemp, setThresholdTemp] = useState(35.0);
@@ -658,31 +661,35 @@ function Dashboard() {
             </div>
 
             <div className="sensor-showcase-box">
-              {isDeviceOnline && latest ? (
+              {isDeviceOnline && latest && (hasTempHumi || hasSoil) ? (
                 <div className="sensor-reading-stack">
-                  <div className="sensor-reading-line">
-                    <span className="sensor-glyph-icon"><Thermometer size={16} /></span>
-                    <strong className="sensor-bold-val">
-                      {latest.temperature != null ? Number(latest.temperature).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) : '—'}°C
-                    </strong>
-                    <span className="sensor-dot-sep">•</span>
-                    <span className="sensor-glyph-icon"><Droplets size={16} /></span>
-                    <strong className="sensor-bold-val">
-                      {latest.humidity != null ? Number(latest.humidity).toLocaleString('vi-VN', { maximumFractionDigits: 0 }) : '—'}% RH
-                    </strong>
-                  </div>
+                  {hasTempHumi && (
+                    <div className="sensor-reading-line">
+                      <span className="sensor-glyph-icon"><Thermometer size={16} /></span>
+                      <strong className="sensor-bold-val">
+                        {latest.temperature != null ? Number(latest.temperature).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) : '—'}°C
+                      </strong>
+                      <span className="sensor-dot-sep">•</span>
+                      <span className="sensor-glyph-icon"><Droplets size={16} /></span>
+                      <strong className="sensor-bold-val">
+                        {latest.humidity != null ? Number(latest.humidity).toLocaleString('vi-VN', { maximumFractionDigits: 0 }) : '—'}% RH
+                      </strong>
+                    </div>
+                  )}
 
-                  <div className="sensor-stack-divider" />
+                  {hasTempHumi && hasSoil && <div className="sensor-stack-divider" />}
 
-                  <div className="sensor-reading-line">
-                    <span className="sensor-glyph-icon"><Droplet size={16} /></span>
-                    <strong className="sensor-bold-val">
-                      {latest.soilMoisture != null ? Number(latest.soilMoisture).toLocaleString('vi-VN', { maximumFractionDigits: 0 }) : '—'}%
-                    </strong>
-                    <span className="sensor-note-val">
-                      {latest.soilMoisture != null && Number(latest.soilMoisture) >= thresholdSoil ? '(Tối ưu)' : '(Cần tưới)'}
-                    </span>
-                  </div>
+                  {hasSoil && (
+                    <div className="sensor-reading-line">
+                      <span className="sensor-glyph-icon"><Droplet size={16} /></span>
+                      <strong className="sensor-bold-val">
+                        {latest.soilMoisture != null ? Number(latest.soilMoisture).toLocaleString('vi-VN', { maximumFractionDigits: 0 }) : '—'}%
+                      </strong>
+                      <span className="sensor-note-val">
+                        {Number(latest.soilMoisture) >= thresholdSoil ? '(Tối ưu)' : '(Cần tưới)'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="sensor-pill-empty">
@@ -1520,6 +1527,8 @@ function Devices() {
   const actuatorOnCount = online ? actuatorItems.filter((item) => item.on).length : 0;
   const activeSensorCount = online ? sensorItems.filter((item) => item.link === 'active').length : 0;
   const allSensorsActive = online && sensorItems.length > 0 && sensorItems.every((item) => item.link === 'active');
+  const hasTempHumi = Boolean(online && (temperature != null || humidity != null) && sensorLink(temperature != null || humidity != null) === 'active');
+  const hasSoil = Boolean(online && soil != null && sensorLink(soil != null) === 'active');
 
   const sensorLinkLabels = {
     active: 'Đang hoạt động',
@@ -1572,9 +1581,50 @@ function Devices() {
       
       <section className="dev-summary" aria-label="Tổng quan thiết bị">
         <article className="dev-summary-card">
-          <div className="dev-summary-top"><span>Cảm biến</span><span className="dev-summary-icon dev-icon-blue"><Radio size={15} /></span></div>
-          <div className="dev-summary-main"><strong>{activeSensorCount}</strong><span>đang hoạt động</span></div>
-          <div className="dev-summary-note">Nhiệt độ, Độ ẩm KK, Độ ẩm đất</div>
+          <div className="dev-summary-top">
+            <span>Cảm biến</span>
+            <span className="dev-summary-icon dev-icon-blue"><Radio size={15} /></span>
+          </div>
+          <div className="dev-summary-main">
+            <strong>{activeSensorCount}</strong>
+            <span>{online && activeSensorCount > 0 ? 'đang hoạt động' : 'mất kết nối'}</span>
+          </div>
+          <div className="dev-summary-sensor-box">
+            {online && (hasTempHumi || hasSoil) ? (
+              <div className="sensor-reading-stack">
+                {hasTempHumi && (
+                  <div className="dev-sensor-reading">
+                    <span className="sensor-glyph-icon"><Thermometer size={14} /></span>
+                    <strong className="sensor-bold-val">
+                      {temperature != null ? Number(temperature).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) : '—'}°C
+                    </strong>
+                    <span className="sensor-dot-sep">•</span>
+                    <span className="sensor-glyph-icon"><Droplets size={14} /></span>
+                    <strong className="sensor-bold-val">
+                      {humidity != null ? Number(humidity).toLocaleString('vi-VN', { maximumFractionDigits: 0 }) : '—'}% RH
+                    </strong>
+                  </div>
+                )}
+                {hasTempHumi && hasSoil && <div className="dev-summary-sensor-divider" />}
+                {hasSoil && (
+                  <div className="dev-sensor-reading">
+                    <span className="sensor-glyph-icon"><Droplet size={14} /></span>
+                    <strong className="sensor-bold-val">
+                      {soil != null ? Number(soil).toLocaleString('vi-VN', { maximumFractionDigits: 0 }) : '—'}%
+                    </strong>
+                    <span className="sensor-note-val">
+                      {Number(soil) >= thresholdSoil ? '(Tối ưu)' : '(Cần tưới)'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="sensor-pill-empty" style={{ padding: '6px 10px', fontSize: '11px' }}>
+                <AlertCircle size={13} />
+                <span>Không có cảm biến kết nối</span>
+              </div>
+            )}
+          </div>
         </article>
         <article className="dev-summary-card">
           <div className="dev-summary-top"><span>Thiết bị điều khiển</span><span className={`dev-summary-icon ${online ? 'dev-icon-green' : 'dev-icon-blue'}`}><Cpu size={15} /></span></div>

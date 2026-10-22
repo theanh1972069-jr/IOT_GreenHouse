@@ -2363,4 +2363,27 @@ input[type="checkbox"][role="switch"]:disabled {
   color: #2dd4bf;
 }
 
+.dev-summary-sensor-box {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.dev-summary-sensor-box .dev-sensor-reading {
+  padding: 1px 0;
+}
+.dev-summary-sensor-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 3px 0;
+}
+:root[data-theme="dark"] .dev-summary-sensor-box {
+  background: #192720;
+  border-color: #273d31;
+}
+:root[data-theme="dark"] .dev-summary-sensor-divider {
+  background: #273d31;
+}
+
 
