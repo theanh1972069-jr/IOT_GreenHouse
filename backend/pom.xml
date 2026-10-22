@@ -28,6 +28,8 @@
 	</scm>
 	<properties>
 		<java.version>17</java.version>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 		<!--
 			spring-boot-testcontainers is managed by the Boot parent, but the plain
 			Testcontainers modules are not, so pin them through its BOM.
@@ -123,6 +125,9 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<encoding>UTF-8</encoding>
+				</configuration>
 				<executions>
 					<execution>
 						<id>default-compile</id>
@@ -131,6 +136,7 @@
 							<goal>compile</goal>
 						</goals>
 						<configuration>
+							<encoding>UTF-8</encoding>
 							<annotationProcessorPaths>
 								<path>
 									<groupId>org.projectlombok</groupId>

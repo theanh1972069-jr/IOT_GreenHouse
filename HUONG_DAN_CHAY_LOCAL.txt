@@ -26,7 +26,7 @@ Frontend React / Vite (Port 5173 - Web Dashboard)
     JDBC URL: jdbc:postgresql://ep-polished-shape-azdm3vs2-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
 
 - MQTT Broker (Mosquitto):
-    Host LAN: 192.168.1.220 | Port: 1883 (Lắng nghe 0.0.0.0, cho phép anonymous)
+    Host LAN: 192.168.1.120 | Port: 1883 (Lắng nghe 0.0.0.0, cho phép anonymous)
     Topic Telemetry: greenhouse/esp32-01/telemetry
     Topic Điều khiển: greenhouse/esp32-01/control
 
@@ -93,7 +93,7 @@ Mở trình duyệt truy cập: http://localhost:5173
    - Khi bật nguồn lần đầu, ESP32 phát Wi-Fi tên: "GreenHouse_ESP32_Setup" (Pass: 12345678).
    - Lấy điện thoại/laptop kết nối vào Wi-Fi đó -> Trang web tự bật (hoặc gõ 192.168.4.1).
    - Bấm "Configure WiFi" -> Chọn Wi-Fi nhà bạn và gõ mật khẩu.
-   - Các thông số IP Server (192.168.1.220), Cổng (1883), Device ID (esp32-01) đã điền sẵn.
+   - Các thông số IP Server (192.168.1.120), Cổng (1883), Device ID (esp32-01) đã điền sẵn.
    - Bấm Save. ESP32 sẽ tự nhớ vào Flash và gửi dữ liệu về Dashboard mỗi 10 giây!
 
    * Mẹo đổi Wi-Fi: Bấm giữ nút BOOT trên ESP32 trong 3 giây để xóa cấu hình và phát lại Wi-Fi Setup.

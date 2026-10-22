@@ -1187,3 +1187,396 @@ tbody tr:hover { background: #fbfcfa; }
 :root[data-theme="dark"] .dev-table th { background: #202d26; }
 :root[data-theme="dark"] .dev-table td { border-color: #2a3931; }
 :root[data-theme="dark"] .dev-pagination { border-color: #2a3931; }
+
+/* ==============================================================================
+   ACTUATOR CONTROLS, POWER MONITORING & THRESHOLD STYLES
+   ============================================================================== */
+.power-overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  margin-top: 14px;
+  border: 1px solid #dbe5e0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ffffff 0%, #f4faf7 100%);
+  box-shadow: 0 2px 6px rgba(19, 133, 102, 0.06);
+}
+
+.power-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.power-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.power-icon-badge {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: #087b66;
+  background: #d5f5e8;
+  box-shadow: 0 0 10px rgba(8, 123, 102, 0.2);
+}
+
+.power-card-title h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e3328;
+}
+
+.power-card-title p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: #63776c;
+}
+
+.power-card-metrics {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.power-big-val {
+  font-size: 28px;
+  font-weight: 800;
+  color: #087b66;
+  letter-spacing: -0.5px;
+}
+
+.power-unit {
+  font-size: 14px;
+  font-weight: 700;
+  color: #52675b;
+}
+
+.power-subtext {
+  font-size: 11px;
+  color: #7b8e83;
+}
+
+.power-progress-track {
+  width: 100%;
+  height: 8px;
+  background: #e3ede8;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.power-progress-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #10b981 0%, #059669 60%, #f59e0b 100%);
+  transition: width 0.4s ease;
+}
+
+.power-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #556c60;
+}
+
+.power-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.power-badge-online {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.power-badge-offline {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.actuator-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  position: relative;
+}
+
+.actuator-card.active-state {
+  border-color: #9ee5cc;
+  box-shadow: 0 4px 14px rgba(8, 123, 102, 0.12);
+}
+
+.actuator-card.active-state.actuator-type-fan {
+  border-color: #6ee7b7;
+}
+
+.actuator-card.active-state.actuator-type-fan .actuator-fan svg {
+  animation: spin 1.2s linear infinite;
+}
+
+.actuator-card.active-state.actuator-type-pump {
+  border-color: #7dd3fc;
+}
+
+.actuator-card.active-state.actuator-type-light {
+  border-color: #fde047;
+}
+
+.actuator-card.active-state.actuator-type-light .actuator-light {
+  background: #fef08a;
+  color: #a16207;
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.6);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.actuator-pin-tag {
+  display: inline-block;
+  font-family: monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  background: #edf3f0;
+  color: #4b6355;
+  border-radius: 4px;
+  margin-top: 2px;
+}
+
+.actuator-power-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: #f3f7f5;
+  border-radius: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.actuator-power-val {
+  font-weight: 700;
+  color: #087b66;
+}
+
+.actuator-power-val.val-off {
+  color: #8fa096;
+}
+
+.actuator-rated-label {
+  font-size: 10px;
+  color: #7c9185;
+}
+
+.actuator-card input[role="switch"] {
+  cursor: pointer;
+}
+
+.quick-action-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid #e2ece7;
+  border-radius: 8px;
+}
+
+.quick-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mode-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #cbdcd4;
+  background: #f4faf7;
+  color: #174d39;
+  transition: all 0.2s;
+}
+
+.mode-toggle-btn.auto-active {
+  background: #087b66;
+  color: #ffffff;
+  border-color: #087b66;
+  box-shadow: 0 2px 6px rgba(8, 123, 102, 0.25);
+}
+
+.btn-emergency-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+  transition: all 0.2s;
+}
+
+.btn-emergency-stop:hover {
+  background: #fee2e2;
+}
+
+.btn-config-threshold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #cbdcd4;
+  background: #ffffff;
+  color: #1b4b38;
+}
+
+.btn-config-threshold:hover {
+  background: #f1f8f5;
+}
+
+/* Modal configuration */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.threshold-dialog {
+  background: #ffffff;
+  width: 100%;
+  max-width: 480px;
+  border-radius: 12px;
+  border: 1px solid #d5e4dd;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  animation: fadeInModal 0.2s ease-out;
+}
+
+@keyframes fadeInModal {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.threshold-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e6f0eb;
+  background: #f8fbf9;
+}
+
+.threshold-dialog-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a3025;
+}
+
+.threshold-dialog-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.threshold-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.threshold-form-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #293d33;
+  display: flex;
+  justify-content: space-between;
+}
+
+.threshold-range-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.threshold-range-row input[type="range"] {
+  flex: 1;
+  accent-color: #087b66;
+  height: 6px;
+  cursor: pointer;
+}
+
+.threshold-val-input {
+  width: 72px;
+  padding: 6px 8px;
+  border: 1px solid #cbdcd4;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: right;
+  color: #087b66;
+}
+
+.threshold-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid #e6f0eb;
+  background: #f8fbf9;
+}
+
+:root[data-theme="dark"] .power-overview-card {
+  border-color: #26382f;
+  background: linear-gradient(135deg, #18241e 0%, #1c2b23 100%);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+:root[data-theme="dark"] .power-card-title h3 { color: #e2ede7; }
+:root[data-theme="dark"] .power-card-title p { color: #8fa69a; }
+:root[data-theme="dark"] .power-progress-track { background: #23342a; }
+:root[data-theme="dark"] .quick-action-strip { background: #18221d; border-color: #2a3931; }
+:root[data-theme="dark"] .mode-toggle-btn { background: #202d26; border-color: #314439; color: #a6c4b5; }
+:root[data-theme="dark"] .btn-config-threshold { background: #202d26; border-color: #314439; color: #a6c4b5; }
+:root[data-theme="dark"] .threshold-dialog { background: #18221d; border-color: #2a3931; }
+:root[data-theme="dark"] .threshold-dialog-header,
+:root[data-theme="dark"] .threshold-dialog-footer { background: #1c2822; border-color: #2a3931; }
+:root[data-theme="dark"] .threshold-dialog-header h3 { color: #e3ece7; }
+:root[data-theme="dark"] .threshold-val-input { background: #202d26; border-color: #314439; color: #6ee7b7; }
+:root[data-theme="dark"] .actuator-power-row { background: #202c25; }
+:root[data-theme="dark"] .actuator-pin-tag { background: #26372e; color: #8fa69a; }

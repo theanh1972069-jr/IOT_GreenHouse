@@ -62,7 +62,7 @@ const navigation = [
     items: [
       { label: 'Thiết bị', path: '/devices', icon: Cpu },
       { label: 'Cảnh báo', path: '/alerts', icon: Bell },
-      { label: 'Điều khiển', path: '/commands', icon: SlidersHorizontal },
+      { label: 'Điều khiển & Bật/Tắt thiết bị', path: '/commands', icon: SlidersHorizontal },
       { label: 'Vòng đời thiết bị', path: '/device-lifecycle', icon: Sprout },
     ],
   },
@@ -445,6 +445,8 @@ function PageHeading({ eyebrow, title, description, actions }) {
 function Dashboard() {
   const [devices, setDevices] = useState([]);
   const [telemetry, setTelemetry] = useState([]);
+  const [configuration, setConfiguration] = useState(null);
+  const [liveStatus, setLiveStatus] = useState(null);
   const [temperatureHigh, setTemperatureHigh] = useState(35);
   const [streamRange, setStreamRange] = useState('1h');
   const [loading, setLoading] = useState(true);
@@ -459,12 +461,15 @@ function Dashboard() {
       setDevices(deviceData);
       if (deviceData.length) {
         const deviceId = encodeURIComponent(deviceData[0].deviceId);
-        const [telemetryData, configuration] = await Promise.all([
-          apiRequest(`/api/telemetry?deviceId=${deviceId}`),
+        const [telemetryData, devConfig, live] = await Promise.all([
+          apiRequest(`/api/telemetry?deviceId=${deviceId}`).catch(() => []),
           apiRequest(`/api/devices/${deviceId}/configuration`).catch(() => null),
+          apiRequest(`/api/devices/${deviceId}/live`).catch(() => null),
         ]);
         setTelemetry(telemetryData);
-        setTemperatureHigh(Number(configuration?.temperatureHigh) || 35);
+        setConfiguration(devConfig);
+        if (live) setLiveStatus(live);
+        setTemperatureHigh(Number(devConfig?.temperatureHigh) || 35);
       } else {
         setTelemetry([]);
       }
@@ -485,8 +490,6 @@ function Dashboard() {
     return () => window.clearInterval(intervalId);
   }, []);
 
-  // 'ONLINE' is not part of the device status vocabulary; ACTIVE is the live state.
-  // Counting 'online' made this card permanently read 0.
   const onlineCount = devices.filter((device) => device.status?.toUpperCase() === 'ACTIVE').length;
   const latest = telemetry[0];
   const metrics = [
@@ -496,17 +499,264 @@ function Dashboard() {
     { label: 'Cường độ sáng', value: latest?.light, unit: 'lux', icon: Zap, tone: 'yellow' },
   ];
 
+  const actuators = liveStatus?.actuators?.length ? liveStatus.actuators : [
+    { id: 'valve', name: 'Van tưới nước (IN1)', pin: 'GPIO 25 (IN1)', type: 'VALVE', state: false, powerW: 0.0, ratedPowerW: 4.8 },
+    { id: 'fan', name: 'Quạt thông gió (IN2)', pin: 'GPIO 33 (IN2)', type: 'FAN', state: false, powerW: 0.0, ratedPowerW: 1.8 },
+    { id: 'light', name: 'Đèn quang hợp (IN3)', pin: 'GPIO 32 (IN3)', type: 'LIGHT', state: false, powerW: 0.0, ratedPowerW: 9.6 },
+  ];
+  const isDeviceOnline = Boolean(liveStatus?.online);
+  const totalPower = isDeviceOnline && liveStatus?.totalPowerW != null ? liveStatus.totalPowerW : 0.0;
+  const activeCount = isDeviceOnline ? actuators.filter((a) => a.state).length : 0;
+
+  const [busyActuator, setBusyActuator] = useState(null);
+  const [showThresholdModal, setShowThresholdModal] = useState(false);
+  const [thresholdTemp, setThresholdTemp] = useState(35.0);
+  const [thresholdSoil, setThresholdSoil] = useState(30.0);
+  const [savingThreshold, setSavingThreshold] = useState(false);
+
+  useEffect(() => {
+    if (liveStatus?.tempThreshold != null) setThresholdTemp(liveStatus.tempThreshold);
+    if (liveStatus?.soilThreshold != null) setThresholdSoil(liveStatus.soilThreshold);
+  }, [liveStatus?.tempThreshold, liveStatus?.soilThreshold]);
+
+  async function handleSaveThresholds(e) {
+    if (e) e.preventDefault();
+    const devId = devices[0]?.deviceId || 'esp32-01';
+    setSavingThreshold(true);
+    try {
+      const updated = await apiRequest(`/api/devices/${encodeURIComponent(devId)}/thresholds`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          temperatureHigh: parseFloat(thresholdTemp),
+          soilMoistureLow: parseFloat(thresholdSoil),
+          autoMode: liveStatus?.autoMode ?? true,
+        }),
+      });
+      if (updated) setLiveStatus(updated);
+      setShowThresholdModal(false);
+    } catch (err) {
+      console.error('Không thể lưu ngưỡng cấu hình:', err);
+    } finally {
+      setSavingThreshold(false);
+    }
+  }
+
+  function getActuatorName(act) {
+    if (!act) return '';
+    if (act.id === 'valve') return 'Van tưới nước (IN1)';
+    if (act.id === 'fan') return 'Quạt thông gió (IN2)';
+    if (act.id === 'light') return 'Đèn quang hợp (IN3)';
+    return act.name;
+  }
+
+  function getActuatorPin(act) {
+    if (!act) return '';
+    if (act.id === 'valve') return 'GPIO 25 (IN1)';
+    if (act.id === 'fan') return 'GPIO 33 (IN2)';
+    if (act.id === 'light') return 'GPIO 32 (IN3)';
+    return act.pin;
+  }
+
+  async function handleToggle(actuatorId, newState) {
+    const devId = devices[0]?.deviceId || 'esp32-01';
+    setBusyActuator(actuatorId);
+    try {
+      const updated = await apiRequest(`/api/devices/${encodeURIComponent(devId)}/control`, {
+        method: 'POST',
+        body: JSON.stringify({ actuator: actuatorId, state: newState }),
+      });
+      if (updated) setLiveStatus(updated);
+    } catch (err) {
+      console.error('Lỗi khi điều khiển thiết bị:', err);
+    } finally {
+      setBusyActuator(null);
+    }
+  }
+
   return (
     <>
-      <PageHeading eyebrow={new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date()).toLocaleUpperCase('vi-VN')} title="Tổng quan nhà kính" description="Theo dõi trạng thái thiết bị và điều kiện môi trường." actions={<button className="button button-secondary" onClick={() => loadDashboard()} disabled={loading}><RefreshCw size={16} className={loading ? 'spin' : ''} /> Làm mới</button>} />
+      <PageHeading
+        eyebrow={new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date()).toLocaleUpperCase('vi-VN')}
+        title="Tổng quan nhà kính"
+        description="Theo dõi trạng thái thiết bị và điều kiện môi trường."
+        actions={
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button className="button button-primary" type="button" onClick={() => setShowThresholdModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Settings2 size={15} /> ⚙️ Chỉnh ngưỡng kích hoạt
+            </button>
+            <NavLink className="button button-secondary" to="/commands" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <SlidersHorizontal size={15} /> Trang điều khiển ↗
+            </NavLink>
+            <button className="button button-secondary" onClick={() => loadDashboard()} disabled={loading}>
+              <RefreshCw size={16} className={loading ? 'spin' : ''} /> Làm mới
+            </button>
+          </div>
+        }
+      />
       {error && <div className="notice notice-error"><AlertTriangle size={17} /><span>{error} Hãy kiểm tra backend và kết nối cơ sở dữ liệu.</span></div>}
       <div className="refresh-status"><span className={`live-indicator ${apiOnline ? 'live-indicator-online' : 'live-indicator-offline'}`}><span /> API {apiOnline ? 'kết nối' : loading ? 'đang kiểm tra' : 'mất kết nối'}</span><span>Tự làm mới mỗi 10 giây</span><span>{lastUpdated ? `Cập nhật lúc ${lastUpdated.toLocaleTimeString('vi-VN')}` : 'Đang lấy dữ liệu...'}</span></div>
+      
       <section className="stat-grid" aria-label="Thống kê thiết bị">
         <StatCard label="Tổng thiết bị" value={loading ? '—' : devices.length} note="Đã đăng ký" icon={Cpu} tone="green" />
         <StatCard label="Đang trực tuyến" value={loading ? '—' : onlineCount} note="Trạng thái từ backend" icon={Wifi} tone="blue" />
-        <StatCard label="Đang ngoại tuyến" value={loading ? '—' : devices.length - onlineCount} note="Chưa có heartbeat" icon={ArrowDownRight} tone="coral" />
-        <StatCard label="Bản ghi telemetry" value={loading ? '—' : telemetry.length} note="Thiết bị đầu tiên" icon={Activity} tone="yellow" />
+        <StatCard label="Công suất tiêu thụ" value={loading ? '—' : `${isDeviceOnline ? totalPower.toFixed(1) : 0} W`} note={isDeviceOnline ? `${activeCount} / ${actuators.length} tải đang bật` : 'Không kết nối (ghi 0 W)'} icon={Zap} tone="yellow" />
+        <StatCard label="Chế độ vận hành" value={loading ? '—' : liveStatus?.autoMode ? 'TỰ ĐỘNG' : 'THỦ CÔNG'} note="Điều khiển ESP32" icon={SlidersHorizontal} tone="coral" />
       </section>
+
+      {/* ACTUATOR LIVE SUMMARY STRIP */}
+      <section className="content-section" style={{ marginTop: 14 }}>
+        <div className="section-heading">
+          <div>
+            <div className="section-kicker">THIẾT BỊ NỐI DÂY ESP32 &amp; CÔNG SUẤT</div>
+            <h2>Tải đang vận hành ({isDeviceOnline ? totalPower.toFixed(1) : 0} W)</h2>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button className="button button-primary" type="button" onClick={() => setShowThresholdModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '6px 14px' }}>
+              <Settings2 size={15} /> Chỉnh ngưỡng kích hoạt
+            </button>
+            <NavLink className="button button-secondary" to="/commands" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '6px 14px' }}>
+              Trang điều khiển <ArrowUpRight size={15} />
+            </NavLink>
+          </div>
+        </div>
+
+        {/* Hướng dẫn thao tác nhanh */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', marginTop: '10px', flexWrap: 'wrap', gap: '8px' }}>
+          <span style={{ fontSize: '13px', color: '#065f46', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Info size={16} /> <strong>Kích hoạt thủ công:</strong> Gạt trực tiếp công tắc ở từng thiết bị bên dưới để Bật/Tắt ngay lập tức.
+          </span>
+          <span style={{ fontSize: '12px', color: '#047857' }}>
+            Nhấn nút <strong>"Chỉnh ngưỡng kích hoạt"</strong> để cài đặt nhiệt độ &amp; độ ẩm tự động.
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px', marginTop: '10px' }}>
+          {actuators.map((act) => (
+            <div key={act.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: (isDeviceOnline && act.state) ? '#f0fdf4' : '#f9fafb', border: `1px solid ${(isDeviceOnline && act.state) ? '#86efac' : '#e5e7eb'}`, borderRadius: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ display: 'grid', placeItems: 'center', width: '36px', height: '36px', borderRadius: '8px', background: (isDeviceOnline && act.state) ? '#dcfce7' : '#f3f4f6', color: (isDeviceOnline && act.state) ? '#15803d' : '#6b7280' }}>
+                  {act.id === 'fan' ? <Fan size={18} /> : act.id === 'light' ? <Lightbulb size={18} /> : <Droplet size={18} />}
+                </span>
+                <div>
+                  <strong style={{ fontSize: '13px', display: 'block', color: '#1f2937' }}>{getActuatorName(act)}</strong>
+                  <small style={{ fontSize: '11px', color: '#6b7280' }}>{getActuatorPin(act)}</small>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ textAlign: 'right' }}>
+                  <strong style={{ fontSize: '14px', color: (isDeviceOnline && act.state) ? '#087b66' : '#9ca3af', display: 'block' }}>
+                    {isDeviceOnline && act.state ? (act.powerW || 0).toFixed(1) : 0} W
+                  </strong>
+                  <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: (isDeviceOnline && act.state) ? '#dcfce7' : '#f3f4f6', color: (isDeviceOnline && act.state) ? '#15803d' : '#6b7280' }}>
+                    {!isDeviceOnline ? 'KHÔNG KẾT NỐI (0 W)' : act.state ? 'ĐANG BẬT' : 'ĐANG TẮT'}
+                  </span>
+                </div>
+
+                {/* Công tắc gạt kích hoạt thủ công trực tiếp trên Dashboard */}
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label={`Bật tắt ${getActuatorName(act)}`}
+                  checked={Boolean(isDeviceOnline && act.state)}
+                  disabled={!isDeviceOnline || busyActuator === act.id}
+                  onChange={(e) => handleToggle(act.id, e.target.checked)}
+                  title={!isDeviceOnline ? 'Thiết bị chưa kết nối' : 'Gạt công tắc để bật hoặc tắt thiết bị'}
+                  style={{ cursor: isDeviceOnline ? 'pointer' : 'not-allowed', width: '38px', height: '22px' }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* MODAL CÀI ĐẶT NGƯỠNG TRỰC TIẾP TRÊN DASHBOARD */}
+      {showThresholdModal && (
+        <div className="modal-overlay" onClick={() => setShowThresholdModal(false)}>
+          <div className="threshold-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="threshold-dialog-header">
+              <h3>Cấu hình ngưỡng kích hoạt tự động</h3>
+              <button type="button" onClick={() => setShowThresholdModal(false)} style={{ border: 0, background: 'transparent', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleSaveThresholds}>
+              <div className="threshold-dialog-body">
+                <p style={{ margin: 0, fontSize: 12, color: '#52665a' }}>
+                  Các giá trị ngưỡng dưới đây sẽ được lưu trữ và truyền trực tiếp xuống bộ vi điều khiển ESP32 qua giao thức MQTT để tự động bật/tắt Quạt và Van tưới.
+                </p>
+
+                <div className="threshold-form-group">
+                  <label>
+                    <span>Ngưỡng nhiệt độ bật quạt thông gió:</span>
+                    <strong>&gt; {thresholdTemp}°C</strong>
+                  </label>
+                  <div className="threshold-range-row">
+                    <input
+                      type="range"
+                      min="15"
+                      max="50"
+                      step="0.5"
+                      value={thresholdTemp}
+                      onChange={(e) => setThresholdTemp(parseFloat(e.target.value))}
+                    />
+                    <input
+                      type="number"
+                      className="threshold-val-input"
+                      value={thresholdTemp}
+                      step="0.5"
+                      min="15"
+                      max="50"
+                      onChange={(e) => setThresholdTemp(parseFloat(e.target.value) || 0)}
+                    />
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>°C</span>
+                  </div>
+                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ &gt; ngưỡng này, ESP32 sẽ tự động bật quạt (GPIO 33 · IN2 · 45W) làm mát.</small>
+                </div>
+
+                <div className="threshold-form-group" style={{ marginTop: 10 }}>
+                  <label>
+                    <span>Ngưỡng độ ẩm đất bật van tưới:</span>
+                    <strong>&lt; {thresholdSoil}%</strong>
+                  </label>
+                  <div className="threshold-range-row">
+                    <input
+                      type="range"
+                      min="10"
+                      max="80"
+                      step="1"
+                      value={thresholdSoil}
+                      onChange={(e) => setThresholdSoil(parseInt(e.target.value, 10))}
+                    />
+                    <input
+                      type="number"
+                      className="threshold-val-input"
+                      value={thresholdSoil}
+                      step="1"
+                      min="10"
+                      max="80"
+                      onChange={(e) => setThresholdSoil(parseInt(e.target.value, 10) || 0)}
+                    />
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>%</span>
+                  </div>
+                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, ESP32 sẽ tự động mở van tưới (GPIO 25 · IN1 · 18W) cấp nước.</small>
+                </div>
+              </div>
+
+              <div className="threshold-dialog-footer">
+                <button type="button" className="button button-secondary" onClick={() => setShowThresholdModal(false)}>
+                  Hủy bỏ
+                </button>
+                <button type="submit" className="button button-primary" disabled={savingThreshold}>
+                  {savingThreshold ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
+                  {savingThreshold ? 'Đang lưu & gửi lệnh...' : 'Lưu & Áp dụng ngay'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <section className="content-section">
         <div className="section-heading"><div><div className="section-kicker">ĐIỀU KIỆN MÔI TRƯỜNG</div><h2>Số liệu mới nhất</h2></div><span className="data-caption"><Clock3 size={14} /> {latest?.timestamp ? new Date(latest.timestamp).toLocaleString('vi-VN') : 'Chưa có dữ liệu'}</span></div>
         <div className="metric-grid">
@@ -701,8 +951,24 @@ function Devices() {
       setBackendDevices(deviceData);
       if (deviceData.length) {
         try {
-          const telemetry = await apiRequest(`/api/telemetry?deviceId=${encodeURIComponent(deviceData[0].deviceId)}`);
+          const encodedId = encodeURIComponent(deviceData[0].deviceId);
+          const [telemetry, live] = await Promise.all([
+            apiRequest(`/api/telemetry?deviceId=${encodedId}`).catch(() => []),
+            apiRequest(`/api/devices/${encodedId}/live`).catch(() => null),
+          ]);
           setLatest(telemetry[0] || null);
+          if (live && live.actuators) {
+            const isLiveOnline = Boolean(live.online);
+            const fanAct = live.actuators.find((a) => a.id === 'fan');
+            const valveAct = live.actuators.find((a) => a.id === 'valve');
+            const lightAct = live.actuators.find((a) => a.id === 'light');
+            setActuators((current) => ({
+              ...current,
+              fan: Boolean(isLiveOnline && fanAct?.state),
+              pump: Boolean(isLiveOnline && valveAct?.state),
+              lamp: Boolean(isLiveOnline && lightAct?.state),
+            }));
+          }
         } catch {
           setLatest(null);
         }
@@ -834,17 +1100,23 @@ function Devices() {
     },
   ];
 
+  const online = apiReachable && hasNodes && telemetryFresh;
+
   const actuatorItems = [
     {
       id: 'fan',
       name: 'Quạt thông gió',
       kind: 'ACTUATOR',
-      on: !!actuators.fan,
+      on: Boolean(online && actuators.fan),
       icon: Fan,
-      iconTone: 'dev-icon-green',
+      iconTone: online && actuators.fan ? 'dev-icon-green' : 'dev-icon-blue',
       value: (
         <span className="dev-value">
-          <span className="dev-value-item dev-value-muted"><Clock3 size={13} /> Tự động theo nhiệt (&gt;25°C)</span>
+          {online ? (
+            <span className="dev-value-item dev-value-muted"><Clock3 size={13} /> Tự động theo nhiệt (&gt;25°C)</span>
+          ) : (
+            <span className="dev-value-empty">Mất kết nối (0 W)</span>
+          )}
         </span>
       ),
     },
@@ -852,12 +1124,16 @@ function Devices() {
       id: 'pump',
       name: 'Máy bơm tưới',
       kind: 'ACTUATOR',
-      on: !!actuators.pump,
+      on: Boolean(online && actuators.pump),
       icon: Droplets,
-      iconTone: 'dev-icon-green',
+      iconTone: online && actuators.pump ? 'dev-icon-green' : 'dev-icon-blue',
       value: (
         <span className="dev-value">
-          <span className="dev-value-item dev-value-muted">{actuators.pump ? 'Đang tưới (còn 3 phút)' : 'Lần tưới gần nhất: 06:30'}</span>
+          {online ? (
+            <span className="dev-value-item dev-value-muted">{actuators.pump ? 'Đang tưới (còn 3 phút)' : 'Lần tưới gần nhất: 06:30'}</span>
+          ) : (
+            <span className="dev-value-empty">Mất kết nối (0 W)</span>
+          )}
         </span>
       ),
     },
@@ -865,12 +1141,16 @@ function Devices() {
       id: 'lamp',
       name: 'Đèn quang hợp',
       kind: 'ACTUATOR',
-      on: !!actuators.lamp,
+      on: Boolean(online && actuators.lamp),
       icon: Lightbulb,
-      iconTone: 'dev-icon-green',
+      iconTone: online && actuators.lamp ? 'dev-icon-green' : 'dev-icon-blue',
       value: (
         <span className="dev-value">
-          <span className="dev-value-item"><Sun size={13} /> Mức sáng 75%</span>
+          {online ? (
+            <span className="dev-value-item"><Sun size={13} /> Mức sáng 75%</span>
+          ) : (
+            <span className="dev-value-empty">Mất kết nối (0 W)</span>
+          )}
         </span>
       ),
     },
@@ -878,12 +1158,16 @@ function Devices() {
       id: item.id,
       name: item.name,
       kind: 'ACTUATOR',
-      on: !!item.on,
+      on: Boolean(online && item.on),
       icon: Cpu,
-      iconTone: 'dev-icon-green',
+      iconTone: online && item.on ? 'dev-icon-green' : 'dev-icon-blue',
       value: (
         <span className="dev-value">
-          <span className="dev-value-item dev-value-muted">{item.detail || 'Thiết bị thêm thủ công'}</span>
+          {online ? (
+            <span className="dev-value-item dev-value-muted">{item.detail || 'Thiết bị thêm thủ công'}</span>
+          ) : (
+            <span className="dev-value-empty">Mất kết nối (0 W)</span>
+          )}
         </span>
       ),
     })),
@@ -892,10 +1176,9 @@ function Devices() {
   const allItems = [...sensorItems, ...actuatorItems];
   const sensorCount = sensorItems.length;
   const actuatorCount = actuatorItems.length;
-  const actuatorOnCount = actuatorItems.filter((item) => item.on).length;
-  const activeSensorCount = sensorItems.filter((item) => item.link === 'active').length;
-  const allSensorsActive = sensorItems.length > 0 && sensorItems.every((item) => item.link === 'active');
-  const online = apiReachable && telemetryFresh;
+  const actuatorOnCount = online ? actuatorItems.filter((item) => item.on).length : 0;
+  const activeSensorCount = online ? sensorItems.filter((item) => item.link === 'active').length : 0;
+  const allSensorsActive = online && sensorItems.length > 0 && sensorItems.every((item) => item.link === 'active');
 
   const sensorLinkLabels = {
     active: 'Đang hoạt động',
@@ -952,9 +1235,9 @@ function Devices() {
           <div className="dev-summary-note">Nhiệt độ, Độ ẩm, Đất, Ánh sáng</div>
         </article>
         <article className="dev-summary-card">
-          <div className="dev-summary-top"><span>Thiết bị điều khiển</span><span className="dev-summary-icon dev-icon-green"><Cpu size={15} /></span></div>
-          <div className="dev-summary-main"><strong>{actuatorOnCount} / {actuatorCount}</strong><span>đang bật</span></div>
-          <div className="dev-summary-note">Quạt, Đèn, Máy bơm</div>
+          <div className="dev-summary-top"><span>Thiết bị điều khiển</span><span className={`dev-summary-icon ${online ? 'dev-icon-green' : 'dev-icon-blue'}`}><Cpu size={15} /></span></div>
+          <div className="dev-summary-main"><strong>{online ? `${actuatorOnCount} / ${actuatorCount}` : `0 / ${actuatorCount}`}</strong><span>{online ? 'đang bật' : 'mất kết nối'}</span></div>
+          <div className="dev-summary-note">{online ? 'Quạt, Đèn, Máy bơm' : 'Ngoại tuyến (0 W · Mất kết nối)'}</div>
         </article>
         <article className="dev-summary-card">
           <div className="dev-summary-top"><span>Kết nối</span><span className="dev-summary-icon dev-icon-wifi"><Wifi size={15} /></span></div>
@@ -971,7 +1254,7 @@ function Devices() {
           </div>
           <label className="dev-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm kiếm thiết bị..." aria-label="Tìm kiếm thiết bị" /></label>
         </div>
-        <div className="dev-list-heading"><div><strong>Danh sách thiết bị</strong><span>{filtered.length} thiết bị</span></div><span className={`dev-system-status ${allSensorsActive ? '' : 'dev-system-warn'}`}><i />{allSensorsActive ? 'Hệ thống hoạt động bình thường' : !apiReachable ? 'Mất kết nối backend' : !hasNodes ? 'Chưa có node cảm biến nào' : 'Có cảm biến mất kết nối'}</span></div>
+        <div className="dev-list-heading"><div><strong>Danh sách thiết bị</strong><span>{filtered.length} thiết bị</span></div><span className={`dev-system-status ${allSensorsActive ? '' : 'dev-system-warn'}`}><i />{!online ? 'Toàn bộ thiết bị & cảm biến mất kết nối (Ngoại tuyến)' : allSensorsActive ? 'Hệ thống hoạt động bình thường' : !apiReachable ? 'Mất kết nối backend' : !hasNodes ? 'Chưa có node cảm biến nào' : 'Có cảm biến mất kết nối'}</span></div>
         {loading ? <div className="table-state"><LoaderCircle className="spin" size={21} /> Đang tải thiết bị...</div> : !visibleItems.length ? <div className="table-state"><Cpu size={22} /><span>Chưa có thiết bị phù hợp.</span></div> : (
           <div className="table-scroll dev-table-scroll">
             <table className="dev-table">
@@ -997,7 +1280,7 @@ function Devices() {
                       <td>
                         {isSensor
                           ? <span className={`dev-status ${sensorLinkTones[item.link]}`} title={sensorLinkHint[item.link]}><i />{sensorLinkLabels[item.link]}</span>
-                          : <span className={`dev-status ${active ? 'dev-status-on' : 'dev-status-off'}`}><i />{active ? 'Đang bật' : 'Đang tắt'}</span>}
+                          : <span className={`dev-status ${!online ? 'dev-status-error' : active ? 'dev-status-on' : 'dev-status-off'}`}><i />{!online ? 'Mất kết nối' : active ? 'Đang bật' : 'Đang tắt'}</span>}
                       </td>
                       <td>{item.value}</td>
                     </tr>

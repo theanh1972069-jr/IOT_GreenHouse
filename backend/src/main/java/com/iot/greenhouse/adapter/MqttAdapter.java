@@ -1,30 +1,27 @@
 package com.iot.greenhouse.adapter;
 
 import com.iot.greenhouse.entity.Telemetry;
+import com.iot.greenhouse.service.DeviceLiveService;
 import com.iot.greenhouse.service.TelemetryService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.integration.annotation.ServiceActivator;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.core.MessageProducer;
 import org.springframework.integration.mqtt.core.MqttPahoClientFactory;
 import org.springframework.integration.mqtt.inbound.MqttPahoMessageDrivenChannelAdapter;
+import org.springframework.integration.mqtt.outbound.MqttPahoMessageHandler;
 import org.springframework.integration.mqtt.support.DefaultPahoMessageConverter;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
 
 /**
- * MQTT transport for device telemetry. Subscribes to {@code greenhouse/{deviceId}/telemetry}
- * and hands the payload to {@link TelemetryPayloadParser}.
- *
- * <p>This class is a {@code @Configuration}, not a plain {@code @Component}, so that
- * {@link #mqttInputChannel()} is proxied and every {@code @Bean} method receives the
- * same channel instance. As a plain component the call inside {@link #inbound()} would
- * build a second {@link DirectChannel}, leaving the adapter publishing to a channel
- * nothing was subscribed to ("Dispatcher has no subscribers").
+ * MQTT transport for device telemetry and control. Subscribes to {@code greenhouse/{deviceId}/telemetry}
+ * and provides outbound publishing channel for device actuation.
  */
 @Slf4j
 @Configuration
@@ -33,23 +30,22 @@ public class MqttAdapter {
 
     private static final String TOPIC = "greenhouse/+/telemetry";
 
-    /**
-     * Stable across restarts so the broker can resume the persistent session and hand
-     * over the messages it buffered while the backend was down. Must match
-     * {@code mqtt.client-id}.
-     */
     private static final String CLIENT_ID = "greenhouse-telemetry-subscriber";
+    private static final String PUBLISHER_CLIENT_ID = "greenhouse-control-publisher";
 
     private final TelemetryService telemetryService;
     private final TelemetryPayloadParser payloadParser;
     private final MqttPahoClientFactory mqttClientFactory;
+    private final DeviceLiveService deviceLiveService;
 
     public MqttAdapter(TelemetryService telemetryService,
                        TelemetryPayloadParser payloadParser,
-                       MqttPahoClientFactory mqttClientFactory) {
+                       MqttPahoClientFactory mqttClientFactory,
+                       @Lazy DeviceLiveService deviceLiveService) {
         this.telemetryService = telemetryService;
         this.payloadParser = payloadParser;
         this.mqttClientFactory = mqttClientFactory;
+        this.deviceLiveService = deviceLiveService;
     }
 
     @Bean
@@ -59,16 +55,11 @@ public class MqttAdapter {
 
     @Bean
     public MessageProducer inbound(MessageChannel mqttInputChannel) {
-        // A stable client id is required for a persistent session (cleanSession=false):
-        // the broker keys the queued session by id, so a random id per boot would
-        // abandon everything it buffered while the backend was down.
         MqttPahoMessageDrivenChannelAdapter adapter =
                 new MqttPahoMessageDrivenChannelAdapter(CLIENT_ID, mqttClientFactory, TOPIC);
         adapter.setCompletionTimeout(5000);
         adapter.setConverter(new DefaultPahoMessageConverter());
         adapter.setQos(1);
-        // Injected rather than calling the method, so this is the channel the
-        // @ServiceActivator handler below is actually subscribed to.
         adapter.setOutputChannel(mqttInputChannel);
         return adapter;
     }
@@ -77,6 +68,21 @@ public class MqttAdapter {
     @ServiceActivator(inputChannel = "mqttInputChannel")
     public MessageHandler handler() {
         return this::onTelemetryMessage;
+    }
+
+    @Bean
+    public MessageChannel mqttOutboundChannel() {
+        return new DirectChannel();
+    }
+
+    @Bean
+    @ServiceActivator(inputChannel = "mqttOutboundChannel")
+    public MessageHandler outboundHandler() {
+        MqttPahoMessageHandler messageHandler =
+                new MqttPahoMessageHandler(PUBLISHER_CLIENT_ID, mqttClientFactory);
+        messageHandler.setAsync(true);
+        messageHandler.setDefaultQos(1);
+        return messageHandler;
     }
 
     void onTelemetryMessage(Message<?> message) {
@@ -92,9 +98,11 @@ public class MqttAdapter {
         String deviceId = parts[1];
 
         Telemetry telemetry = payloadParser.parse(payload, deviceId);
-        if (telemetry == null) {
-            return;
+        if (telemetry != null) {
+            telemetryService.processTelemetryData(deviceId, telemetry);
         }
-        telemetryService.processTelemetryData(deviceId, telemetry);
+        if (deviceLiveService != null) {
+            deviceLiveService.updateFromTelemetry(deviceId, payload, telemetry);
+        }
     }
 }

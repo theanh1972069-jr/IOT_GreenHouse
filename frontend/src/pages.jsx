@@ -25,6 +25,8 @@ import {
   Pencil,
   Phone,
   Play,
+  Power,
+  Radio,
   RefreshCw,
   RotateCcw,
   Search,
@@ -40,6 +42,7 @@ import {
   Wifi,
   Wrench,
   X,
+  Zap,
 } from 'lucide-react';
 import { apiRequest, getStoredSession } from './api.js';
 import { fileToAvatarDataUrl, getPhone, roleLabel, setAvatar, setPhone, useAvatar } from './avatar.js';
@@ -411,10 +414,17 @@ function ControlOverview({ devices, capability }) {
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [telemetry, setTelemetry] = useState([]);
   const [configuration, setConfiguration] = useState(null);
+  const [liveStatus, setLiveStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [series, setSeries] = useState('temperature');
   const [range, setRange] = useState('auto');
+  const [busyActuator, setBusyActuator] = useState(null);
+  const [showThresholdModal, setShowThresholdModal] = useState(false);
+  const [thresholdTemp, setThresholdTemp] = useState(35.0);
+  const [thresholdSoil, setThresholdSoil] = useState(30.0);
+  const [savingThreshold, setSavingThreshold] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
 
   useEffect(() => {
     if (requestedDeviceId && devices.some((device) => device.deviceId === requestedDeviceId)) {
@@ -424,95 +434,596 @@ function ControlOverview({ devices, capability }) {
     }
   }, [requestedDeviceId, selectedDeviceId, devices]);
 
+  // Synchronize threshold inputs when configuration / liveStatus updates
+  useEffect(() => {
+    if (liveStatus?.tempThreshold != null) {
+      setThresholdTemp(liveStatus.tempThreshold);
+    } else if (configuration?.temperatureHigh != null) {
+      setThresholdTemp(Number(configuration.temperatureHigh));
+    }
+    if (liveStatus?.soilThreshold != null) {
+      setThresholdSoil(liveStatus.soilThreshold);
+    } else if (configuration?.soilMoistureLow != null) {
+      setThresholdSoil(Number(configuration.soilMoistureLow));
+    }
+  }, [liveStatus?.tempThreshold, liveStatus?.soilThreshold, configuration]);
+
+  const showToast = (text, type = 'success') => {
+    setToastMessage({ text, type, id: Date.now() });
+    setTimeout(() => setToastMessage(null), type === 'warning' ? 6000 : 3500);
+  };
+
   useEffect(() => {
     if (!selectedDeviceId) {
       setTelemetry([]);
       setConfiguration(null);
+      setLiveStatus(null);
       return undefined;
     }
 
     let active = true;
-    const loadTelemetry = async () => {
-      setLoading(true);
+    const loadData = async (initial = false) => {
+      if (initial) setLoading(true);
       try {
         const encodedId = encodeURIComponent(selectedDeviceId);
-        const [records, deviceConfiguration] = await Promise.all([
-          apiRequest(`/api/telemetry?deviceId=${encodedId}`),
+        const [records, deviceConfiguration, live] = await Promise.all([
+          apiRequest(`/api/telemetry?deviceId=${encodedId}`).catch(() => []),
           apiRequest(`/api/devices/${encodedId}/configuration`).catch(() => null),
+          apiRequest(`/api/devices/${encodedId}/live`).catch(() => null),
         ]);
         if (active) {
           setTelemetry(records);
           setConfiguration(deviceConfiguration);
+          if (live) setLiveStatus(live);
           setError('');
         }
       } catch (requestError) {
-        if (active) setError(requestError.message || 'Không thể tải dữ liệu cảm biến.');
+        if (active && initial) setError(requestError.message || 'Không thể tải dữ liệu thiết bị.');
       } finally {
-        if (active) setLoading(false);
+        if (active && initial) setLoading(false);
       }
     };
 
-    loadTelemetry();
-    const intervalId = window.setInterval(loadTelemetry, refreshMs);
+    loadData(true);
+    const intervalId = window.setInterval(() => loadData(false), 2500);
     return () => {
       active = false;
       window.clearInterval(intervalId);
     };
   }, [selectedDeviceId]);
 
+  // Toggle individual actuator
+  async function toggleActuator(actuatorId, newState) {
+    if (!selectedDeviceId) return;
+    setBusyActuator(actuatorId);
+
+    // Optimistic UI update
+    setLiveStatus((current) => {
+      if (!current) return current;
+      const isOnline = Boolean(current.online);
+      const currentActuators = current.actuators || [];
+      const updated = currentActuators.map((act) => {
+        if (act.id === actuatorId) {
+          const defaultRated = act.id === 'fan' ? 1.8 : act.id === 'valve' ? 4.8 : 9.6;
+          const rated = act.ratedPowerW || act.ratedW || defaultRated;
+          const power = (isOnline && newState) ? rated : 0.0;
+          return { ...act, state: newState, powerW: power, ratedPowerW: rated };
+        }
+        return act;
+      });
+      const newTotalPower = isOnline
+        ? updated.reduce((sum, act) => sum + (act.state ? (act.powerW || 0) : 0), 0)
+        : 0;
+      return { ...current, actuators: updated, totalPowerW: Math.round(newTotalPower * 10) / 10 };
+    });
+
+    try {
+      const updated = await apiRequest(`/api/devices/${encodeURIComponent(selectedDeviceId)}/control`, {
+        method: 'POST',
+        body: JSON.stringify({ actuator: actuatorId, state: newState }),
+      });
+      if (updated) setLiveStatus(updated);
+      const name = actuatorId === 'valve' ? 'Van tưới nước' : actuatorId === 'fan' ? 'Quạt thông gió' : 'Đèn quang hợp';
+      if (updated?.lastAlertMessage) {
+        showToast(updated.lastAlertMessage, 'warning');
+      } else {
+        showToast(`Đã ${newState ? 'bật' : 'tắt'} ${name} thành công!`);
+      }
+    } catch (err) {
+      showToast(err.message || 'Lỗi khi gửi lệnh điều khiển.', 'error');
+    } finally {
+      setBusyActuator(null);
+    }
+  }
+
+  // Toggle Auto/Manual mode
+  async function toggleAutoMode(newAuto) {
+    if (!selectedDeviceId) return;
+    setLiveStatus((current) => current ? { ...current, autoMode: newAuto } : current);
+    try {
+      const updated = await apiRequest(`/api/devices/${encodeURIComponent(selectedDeviceId)}/control`, {
+        method: 'POST',
+        body: JSON.stringify({ autoMode: newAuto }),
+      });
+      if (updated) setLiveStatus(updated);
+      showToast(newAuto ? 'Đã bật chế độ Tự động điều khiển theo ngưỡng.' : 'Đã chuyển sang chế độ Điều khiển thủ công.');
+    } catch (err) {
+      showToast(err.message || 'Lỗi chuyển chế độ.', 'error');
+    }
+  }
+
+  // Emergency stop all actuators
+  async function handleEmergencyStop() {
+    if (!selectedDeviceId) return;
+    setLiveStatus((current) => {
+      if (!current) return current;
+      const stopped = (current.actuators || []).map((a) => ({ ...a, state: false, powerW: 0 }));
+      return { ...current, actuators: stopped, totalPowerW: 0 };
+    });
+    try {
+      const updated = await apiRequest(`/api/devices/${encodeURIComponent(selectedDeviceId)}/quick-action`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'stop_all' }),
+      });
+      if (updated) setLiveStatus(updated);
+      showToast('Đã ngắt khẩn cấp toàn bộ thiết bị (0 W)!');
+    } catch (err) {
+      showToast(err.message || 'Lỗi ngắt thiết bị.', 'error');
+    }
+  }
+
+  // Quick action (water, fan, light)
+  async function handleQuickAction(actionName, label) {
+    if (!selectedDeviceId) return;
+    try {
+      const updated = await apiRequest(`/api/devices/${encodeURIComponent(selectedDeviceId)}/quick-action`, {
+        method: 'POST',
+        body: JSON.stringify({ action: actionName }),
+      });
+      if (updated) setLiveStatus(updated);
+      if (updated?.lastAlertMessage) {
+        showToast(updated.lastAlertMessage, 'warning');
+      } else {
+        showToast(`Đã kích hoạt: ${label}`);
+      }
+    } catch (err) {
+      showToast(err.message || 'Lỗi thực hiện.', 'error');
+    }
+  }
+
+  // Save thresholds
+  async function handleSaveThresholds(e) {
+    if (e) e.preventDefault();
+    if (!selectedDeviceId) return;
+    setSavingThreshold(true);
+    try {
+      const updated = await apiRequest(`/api/devices/${encodeURIComponent(selectedDeviceId)}/thresholds`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          temperatureHigh: parseFloat(thresholdTemp),
+          soilMoistureLow: parseFloat(thresholdSoil),
+          autoMode: liveStatus?.autoMode ?? true,
+        }),
+      });
+      if (updated) setLiveStatus(updated);
+      setShowThresholdModal(false);
+      showToast('Đã lưu & gửi cấu hình ngưỡng mới xuống ESP32!');
+    } catch (err) {
+      showToast(err.message || 'Không thể lưu ngưỡng cấu hình.', 'error');
+    } finally {
+      setSavingThreshold(false);
+    }
+  }
+
   const latest = telemetry[0];
-  const temperatureLimit = Number(configuration?.temperatureHigh) || 35;
-  const soilLimit = Number(configuration?.soilMoistureLow) || 35;
+  const temperatureLimit = liveStatus?.tempThreshold != null ? liveStatus.tempThreshold : (Number(configuration?.temperatureHigh) || 35);
+  const soilLimit = liveStatus?.soilThreshold != null ? liveStatus.soilThreshold : (Number(configuration?.soilMoistureLow) || 30);
   const metrics = [
-    { label: 'Nhiệt độ không khí', value: latest?.temperature, unit: '°C', target: `< ${temperatureLimit}°C`, good: (value) => value < temperatureLimit, tone: 'metric-temperature' },
+    { label: 'Nhiệt độ không khí', value: latest?.temperature, unit: '°C', target: `< ${temperatureLimit}°C (Bật quạt)`, good: (value) => value < temperatureLimit, tone: 'metric-temperature' },
     { label: 'Độ ẩm không khí', value: latest?.humidity, unit: '% RH', target: '65% – 75%', good: (value) => value >= 65 && value <= 75, tone: 'metric-humidity' },
-    { label: 'Độ ẩm đất', value: latest?.soilMoisture, unit: '%', target: `> ${soilLimit}%`, good: (value) => value > soilLimit, tone: 'metric-soil' },
+    { label: 'Độ ẩm đất', value: latest?.soilMoisture, unit: '%', target: `> ${soilLimit}% (Bật tưới)`, good: (value) => value > soilLimit, tone: 'metric-soil' },
     { label: 'Cường độ ánh sáng', value: latest?.light, unit: 'lux', target: '500 – 1000 lux', good: (value) => value >= 500 && value <= 1000, tone: 'metric-light' },
   ];
-  const unavailableReason = !capability
-    ? 'Đang kiểm tra khả năng điều khiển.'
-    : !capability.mqttEnabled
-      ? 'MQTT đang tắt trên máy chủ.'
-      : !capability.commandProtocolConfigured
-        ? 'Firmware chưa khai báo giao thức nhận lệnh.'
-        : 'Backend chưa có API gửi lệnh đến thiết bị.';
+
+  const actuators = liveStatus?.actuators?.length ? liveStatus.actuators : [
+    { id: 'valve', name: 'Van tưới nước (IN1)', pin: 'GPIO 25 (IN1)', type: 'VALVE', state: false, powerW: 0.0, ratedPowerW: 4.8 },
+    { id: 'fan', name: 'Quạt thông gió (IN2)', pin: 'GPIO 33 (IN2)', type: 'FAN', state: false, powerW: 0.0, ratedPowerW: 1.8 },
+    { id: 'light', name: 'Đèn quang hợp (IN3)', pin: 'GPIO 32 (IN3)', type: 'LIGHT', state: false, powerW: 0.0, ratedPowerW: 9.6 },
+  ];
+
+  const isDeviceOnline = Boolean(liveStatus?.online);
+  const totalPower = isDeviceOnline && liveStatus?.totalPowerW != null ? liveStatus.totalPowerW : 0.0;
+  const activeCount = isDeviceOnline ? actuators.filter((a) => a.state).length : 0;
+  const powerPercentage = isDeviceOnline ? Math.min(100, Math.round((activeCount / actuators.length) * 100)) : 0;
 
   return <>
+    {toastMessage && (
+      <div className={`toast toast-${toastMessage.type}`} style={{ position: 'fixed', top: 20, right: 20, zIndex: 99999 }}>
+        <span>{toastMessage.text}</span>
+      </div>
+    )}
+
+    {/* TOOLBAR */}
     <div className="control-overview-toolbar">
-      <label className="control-device-select"><span>Node đang theo dõi</span><select value={selectedDeviceId} onChange={(event) => setSelectedDeviceId(event.target.value)} disabled={!devices.length}><option value="">{devices.length ? 'Chọn thiết bị' : 'Chưa có thiết bị'}</option>{devices.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.name} · {device.deviceId}</option>)}</select></label>
-      <span className={`control-live-state ${latest ? 'control-live-on' : ''}`}><span />{loading ? 'Đang đồng bộ' : latest?.timestamp ? `Cập nhật ${formatDate(latest.timestamp)}` : 'Chưa có dữ liệu cảm biến'}</span>
+      <label className="control-device-select">
+        <span>Node đang theo dõi</span>
+        <select value={selectedDeviceId} onChange={(event) => setSelectedDeviceId(event.target.value)} disabled={!devices.length}>
+          <option value="">{devices.length ? 'Chọn thiết bị' : 'Chưa có thiết bị'}</option>
+          {devices.map((device) => (
+            <option key={device.deviceId} value={device.deviceId}>{device.name} · {device.deviceId}</option>
+          ))}
+        </select>
+      </label>
+      <span className={`control-live-state ${latest ? 'control-live-on' : ''}`}>
+        <span />{loading ? 'Đang đồng bộ' : latest?.timestamp ? `Cập nhật ${formatDate(latest.timestamp)}` : 'Chưa có dữ liệu cảm biến'}
+      </span>
     </div>
     {error && <ErrorNotice>{error}</ErrorNotice>}
 
-    <section className="control-metric-grid" aria-label="Chỉ số môi trường hiện tại">
+    {/* QUICK ACTION BAR */}
+    <div className="quick-action-strip">
+      <div className="quick-actions-left">
+        <button
+          type="button"
+          className={`mode-toggle-btn ${liveStatus?.autoMode ? 'auto-active' : ''}`}
+          onClick={() => toggleAutoMode(!liveStatus?.autoMode)}
+          title="Chuyển đổi giữa chế độ tự động và thủ công"
+        >
+          <SlidersHorizontal size={14} />
+          {liveStatus?.autoMode ? 'Chế độ: Tự động (Auto)' : 'Chế độ: Thủ công (Manual)'}
+        </button>
+
+        <button
+          type="button"
+          className="btn-config-threshold"
+          onClick={() => setShowThresholdModal(true)}
+          title="Chỉnh ngưỡng nhiệt độ & độ ẩm để kích hoạt thiết bị"
+        >
+          <Settings2 size={14} /> Chỉnh ngưỡng chuyển trạng thái
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <button
+          type="button"
+          className="btn-emergency-stop"
+          onClick={handleEmergencyStop}
+          title="Ngắt nguồn toàn bộ van, quạt, đèn ngay lập tức"
+        >
+          <Power size={14} /> Ngắt khẩn cấp (Tắt hết)
+        </button>
+      </div>
+    </div>
+
+    {/* POWER CONSUMPTION WIDGET */}
+    <article className="power-overview-card">
+      <div className="power-card-header">
+        <div className="power-card-title">
+          <div className="power-icon-badge">
+            <Zap size={20} />
+          </div>
+          <div>
+            <h3>Công suất tiêu thụ điện thời gian thực</h3>
+            <p>Đo lường công suất thực tế hiện tại của các thiết bị nối trực tiếp ESP32</p>
+          </div>
+        </div>
+        <div className="power-card-metrics">
+          <span className="power-big-val">{isDeviceOnline ? totalPower.toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0.0'}</span>
+          <span className="power-unit">W</span>
+          <span className="power-subtext">{isDeviceOnline ? (totalPower > 0 ? '· Tải đang tiêu thụ' : '· Không có tải chạy') : '· Không kết nối: ghi 0 W'}</span>
+        </div>
+      </div>
+
+      <div className="power-progress-track">
+        <div className="power-progress-fill" style={{ width: `${powerPercentage}%` }} />
+      </div>
+
+      <div className="power-meta-row">
+        <span>{isDeviceOnline ? `Công suất hiện tại: ${totalPower.toFixed(1)} W · ${activeCount} / ${actuators.length} thiết bị đang chạy` : 'Trạng thái: Thiết bị chưa kết nối (Công suất: 0 W)'}</span>
+        <span className={`power-badge-pill ${isDeviceOnline ? 'power-badge-online' : 'power-badge-offline'}`}>
+          <Radio size={11} /> {isDeviceOnline ? 'ESP32 đang kết nối' : 'Không kết nối (0 W)'}
+        </span>
+      </div>
+    </article>
+
+    {/* METRICS GRID */}
+    <section className="control-metric-grid" aria-label="Chỉ số môi trường hiện tại" style={{ marginTop: 14 }}>
       {metrics.map(({ label, value, unit, target, good, tone }) => {
         const isGood = value != null && good(Number(value));
-        return <article className="control-metric-card" key={label}>
-          <div className="control-metric-top"><span>{label}</span><span className={`control-metric-badge ${value == null ? 'badge-unknown' : isGood ? 'badge-good' : 'badge-warn'}`}>{value == null ? 'Chưa có dữ liệu' : isGood ? 'Bình thường' : 'Chú ý'}</span></div>
-          <div className="control-metric-reading">{value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}<small>{unit}</small><span className={tone} /></div>
-          <div className="control-metric-target"><span>Mục tiêu an toàn</span><strong>{target}</strong></div>
-        </article>;
+        return (
+          <article className="control-metric-card" key={label}>
+            <div className="control-metric-top">
+              <span>{label}</span>
+              <span className={`control-metric-badge ${value == null ? 'badge-unknown' : isGood ? 'badge-good' : 'badge-warn'}`}>
+                {value == null ? 'Chưa có dữ liệu' : isGood ? 'Bình thường' : 'Chú ý'}
+              </span>
+            </div>
+            <div className="control-metric-reading">
+              {value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}
+              <small>{unit}</small>
+              <span className={tone} />
+            </div>
+            <div className="control-metric-target">
+              <span>Mục tiêu an toàn</span>
+              <strong>{target}</strong>
+            </div>
+          </article>
+        );
       })}
     </section>
 
+    {/* ACTUATOR MANAGEMENT & WIRED DEVICE TOGGLE CARDS */}
     <section className="actuator-grid" aria-label="Thiết bị chấp hành">
-      <article className="actuator-card">
-        <header className="actuator-heading"><span className="actuator-icon actuator-fan"><Fan size={17} /></span><span><strong>Quạt thông gió</strong><small>Lưu thông không khí vòm cây</small></span><span className="actuator-state">Chưa khả dụng</span></header>
-        <div className="actuator-control-row"><span><strong>Nguồn thiết bị</strong><small>Chế độ tự động</small></span><input type="checkbox" role="switch" aria-label="Bật quạt thông gió" disabled title={unavailableReason} /></div>
-        <footer className="actuator-footer"><span>Tự động khi nhiệt độ vượt ngưỡng</span><button type="button" disabled title={unavailableReason}>Cấu hình</button></footer>
-      </article>
-      <article className="actuator-card">
-        <header className="actuator-heading"><span className="actuator-icon actuator-pump"><Droplet size={17} /></span><span><strong>Máy bơm tưới</strong><small>Hệ thống cấp nước nhỏ giọt</small></span><span className="actuator-state">Chưa khả dụng</span></header>
-        <div className="actuator-control-row"><span><strong>Nguồn thiết bị</strong><small>Tự động theo lịch</small></span><input type="checkbox" role="switch" aria-label="Bật máy bơm tưới" disabled title={unavailableReason} /></div>
-        <button className="actuator-action" type="button" disabled title={unavailableReason}><Play size={14} /> Tưới nhanh 5 phút</button>
-      </article>
-      <article className="actuator-card">
-        <header className="actuator-heading"><span className="actuator-icon actuator-light"><Lightbulb size={17} /></span><span><strong>Đèn sinh trưởng LED</strong><small>Dải quang phổ cho cây con</small></span><span className="actuator-state">Chưa khả dụng</span></header>
-        <label className="brightness-control"><span><strong>Độ sáng</strong><b>80%</b></span><input type="range" min="0" max="100" defaultValue="80" disabled aria-label="Độ sáng đèn sinh trưởng" title={unavailableReason} /></label>
-        <footer className="actuator-footer"><span>Tự động tắt lúc 22:00</span><input type="checkbox" role="switch" aria-label="Hẹn giờ đèn sinh trưởng" disabled title={unavailableReason} /></footer>
-      </article>
+      {/* 1. FAN (Quạt thông gió) */}
+      {(() => {
+        const fan = actuators.find((a) => a.id === 'fan') || actuators[1];
+        const isFanOn = Boolean(fan?.state);
+        const currentFanPower = isDeviceOnline && isFanOn ? (fan?.powerW || 0) : 0;
+        return (
+          <article className={`actuator-card actuator-type-fan ${isFanOn && isDeviceOnline ? 'active-state' : ''}`}>
+            <header className="actuator-heading">
+              <span className="actuator-icon actuator-fan"><Fan size={17} /></span>
+              <span>
+                <strong>Quạt thông gió (IN2)</strong>
+                <small><span className="actuator-pin-tag">{fan?.pin || 'GPIO 33 (IN2)'}</span></small>
+              </span>
+              <span className={`actuator-state ${isFanOn && isDeviceOnline ? 'badge-good' : ''}`}>
+                {!isDeviceOnline ? 'MẤT KẾT NỐI' : isFanOn ? 'ĐANG CHẠY' : 'ĐANG DỪNG'}
+              </span>
+            </header>
+
+            <div className="actuator-power-row">
+              <span>Công suất hiện tại:</span>
+              <span className={`actuator-power-val ${isFanOn && isDeviceOnline ? '' : 'val-off'}`}>
+                {currentFanPower.toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} W
+              </span>
+            </div>
+
+            {isDeviceOnline && liveStatus?.fanOverrideSeconds > 0 && (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '5px 8px', fontSize: 10, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0 6px 0' }}>
+                <AlertTriangle size={13} style={{ flexShrink: 0, color: '#d97706' }} />
+                <span>Bật thủ công ngoài ngưỡng · Tự động chỉnh lại sau {Math.ceil(liveStatus.fanOverrideSeconds / 60)} phút</span>
+              </div>
+            )}
+
+            <div className="actuator-control-row">
+              <span>
+                <strong>Nguồn quạt (Nút gạt)</strong>
+                <small>{!isDeviceOnline ? 'Không kết nối (ghi 0 W)' : isFanOn ? `Đang chạy (${currentFanPower.toFixed(1)} W)` : 'Đang ở chế độ chờ (0 W)'}</small>
+              </span>
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label="Đóng ngắt quạt gió"
+                checked={isFanOn && isDeviceOnline}
+                disabled={busyActuator === 'fan' || !isDeviceOnline}
+                onChange={(e) => toggleActuator('fan', e.target.checked)}
+                title={!isDeviceOnline ? 'Thiết bị không kết nối' : 'Gạt công tắc để bật hoặc tắt quạt'}
+              />
+            </div>
+
+            <footer className="actuator-footer">
+              <span>Ngưỡng bật: &gt; {temperatureLimit}°C</span>
+              <button
+                type="button"
+                className="actuator-action"
+                style={{ padding: '4px 8px', fontSize: 10 }}
+                disabled={!isDeviceOnline}
+                onClick={() => handleQuickAction(isFanOn ? 'fan_off' : 'fan_on', isFanOn ? 'Tắt quạt' : 'Thông gió')}
+              >
+                {isFanOn ? 'Dừng quạt' : 'Bật nhanh'}
+              </button>
+            </footer>
+          </article>
+        );
+      })()}
+
+      {/* 2. VALVE / PUMP (Van nước tưới) */}
+      {(() => {
+        const valve = actuators.find((a) => a.id === 'valve') || actuators[0];
+        const isValveOn = Boolean(valve?.state);
+        const currentValvePower = isDeviceOnline && isValveOn ? (valve?.powerW || 0) : 0;
+        return (
+          <article className={`actuator-card actuator-type-pump ${isValveOn && isDeviceOnline ? 'active-state' : ''}`}>
+            <header className="actuator-heading">
+              <span className="actuator-icon actuator-pump"><Droplet size={17} /></span>
+              <span>
+                <strong>Van tưới nước (IN1)</strong>
+                <small><span className="actuator-pin-tag">{valve?.pin || 'GPIO 25 (IN1)'}</span></small>
+              </span>
+              <span className={`actuator-state ${isValveOn && isDeviceOnline ? 'badge-good' : ''}`}>
+                {!isDeviceOnline ? 'MẤT KẾT NỐI' : isValveOn ? 'ĐANG MỞ' : 'ĐANG ĐÓNG'}
+              </span>
+            </header>
+
+            <div className="actuator-power-row">
+              <span>Công suất hiện tại:</span>
+              <span className={`actuator-power-val ${isValveOn && isDeviceOnline ? '' : 'val-off'}`}>
+                {currentValvePower.toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} W
+              </span>
+            </div>
+
+            {isDeviceOnline && liveStatus?.valveOverrideSeconds > 0 && (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '5px 8px', fontSize: 10, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0 6px 0' }}>
+                <AlertTriangle size={13} style={{ flexShrink: 0, color: '#d97706' }} />
+                <span>Bật thủ công ngoài ngưỡng · Tự động chỉnh lại sau {Math.ceil(liveStatus.valveOverrideSeconds / 60)} phút</span>
+              </div>
+            )}
+
+            <div className="actuator-control-row">
+              <span>
+                <strong>Nguồn van (Nút gạt)</strong>
+                <small>{!isDeviceOnline ? 'Không kết nối (ghi 0 W)' : isValveOn ? `Đang mở van (${currentValvePower.toFixed(1)} W)` : 'Đã khóa van (0 W)'}</small>
+              </span>
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label="Đóng ngắt van tưới"
+                checked={isValveOn && isDeviceOnline}
+                disabled={busyActuator === 'valve' || !isDeviceOnline}
+                onChange={(e) => toggleActuator('valve', e.target.checked)}
+                title={!isDeviceOnline ? 'Thiết bị không kết nối' : 'Gạt công tắc để đóng hoặc mở van nước'}
+              />
+            </div>
+
+            <button
+              className="actuator-action"
+              type="button"
+              disabled={!isDeviceOnline}
+              onClick={() => handleQuickAction(isValveOn ? 'water_off' : 'water_on', isValveOn ? 'Khóa van tưới' : 'Tưới nước')}
+            >
+              <Play size={13} /> {isValveOn ? 'Khóa van tưới' : 'Tưới nhanh 5 phút'}
+            </button>
+          </article>
+        );
+      })()}
+
+      {/* 3. LIGHT (Đèn quang hợp LED) */}
+      {(() => {
+        const light = actuators.find((a) => a.id === 'light') || actuators[2];
+        const isLightOn = Boolean(light?.state);
+        const currentLightPower = isDeviceOnline && isLightOn ? (light?.powerW || 0) : 0;
+        return (
+          <article className={`actuator-card actuator-type-light ${isLightOn && isDeviceOnline ? 'active-state' : ''}`}>
+            <header className="actuator-heading">
+              <span className="actuator-icon actuator-light"><Lightbulb size={17} /></span>
+              <span>
+                <strong>Đèn quang hợp LED (IN3)</strong>
+                <small><span className="actuator-pin-tag">{light?.pin || 'GPIO 32 (IN3)'}</span></small>
+              </span>
+              <span className={`actuator-state ${isLightOn && isDeviceOnline ? 'badge-good' : ''}`}>
+                {!isDeviceOnline ? 'MẤT KẾT NỐI' : isLightOn ? 'ĐANG BẬT' : 'ĐANG TẮT'}
+              </span>
+            </header>
+
+            <div className="actuator-power-row">
+              <span>Công suất hiện tại:</span>
+              <span className={`actuator-power-val ${isLightOn && isDeviceOnline ? '' : 'val-off'}`}>
+                {currentLightPower.toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} W
+              </span>
+            </div>
+
+            <div className="actuator-control-row">
+              <span>
+                <strong>Nguồn đèn (Nút gạt)</strong>
+                <small>{!isDeviceOnline ? 'Không kết nối (ghi 0 W)' : isLightOn ? `Đang chiếu sáng (${currentLightPower.toFixed(1)} W)` : 'Đang tắt (0 W)'}</small>
+              </span>
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label="Bật tắt đèn quang hợp"
+                checked={isLightOn && isDeviceOnline}
+                disabled={busyActuator === 'light' || !isDeviceOnline}
+                onChange={(e) => toggleActuator('light', e.target.checked)}
+                title={!isDeviceOnline ? 'Thiết bị không kết nối' : 'Gạt công tắc để bật hoặc tắt đèn'}
+              />
+            </div>
+
+            <footer className="actuator-footer">
+              <span>{!isDeviceOnline ? 'Không kết nối: 0 W' : isLightOn ? 'Đèn đang sáng' : 'Đèn đang tắt'}</span>
+              <button
+                type="button"
+                className="actuator-action"
+                style={{ padding: '4px 8px', fontSize: 10 }}
+                disabled={!isDeviceOnline}
+                onClick={() => handleQuickAction(isLightOn ? 'light_off' : 'light_on', isLightOn ? 'Tắt đèn quang' : 'Bật đèn quang')}
+              >
+                {isLightOn ? 'Tắt đèn' : 'Bật đèn'}
+              </button>
+            </footer>
+          </article>
+        );
+      })()}
     </section>
 
+    {/* THRESHOLD ADJUSTMENT MODAL */}
+    {showThresholdModal && (
+      <div className="modal-overlay" onClick={() => setShowThresholdModal(false)}>
+        <div className="threshold-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="threshold-dialog-header">
+            <h3>Cấu hình ngưỡng chuyển trạng thái</h3>
+            <button type="button" onClick={() => setShowThresholdModal(false)} style={{ border: 0, background: 'transparent', cursor: 'pointer' }}>
+              <X size={18} />
+            </button>
+          </div>
+          <form onSubmit={handleSaveThresholds}>
+            <div className="threshold-dialog-body">
+              <p style={{ margin: 0, fontSize: 12, color: '#52665a' }}>
+                Các giá trị ngưỡng dưới đây sẽ được lưu trữ và truyền trực tiếp xuống bộ vi điều khiển ESP32 qua giao thức MQTT để tự động điều khiển Relay.
+              </p>
+
+              <div className="threshold-form-group">
+                <label>
+                  <span>Ngưỡng nhiệt độ bật quạt thông gió:</span>
+                  <strong>&gt; {thresholdTemp}°C</strong>
+                </label>
+                <div className="threshold-range-row">
+                  <input
+                    type="range"
+                    min="15"
+                    max="50"
+                    step="0.5"
+                    value={thresholdTemp}
+                    onChange={(e) => setThresholdTemp(parseFloat(e.target.value))}
+                  />
+                  <input
+                    type="number"
+                    className="threshold-val-input"
+                    value={thresholdTemp}
+                    step="0.5"
+                    min="15"
+                    max="50"
+                    onChange={(e) => setThresholdTemp(parseFloat(e.target.value) || 0)}
+                  />
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>°C</span>
+                </div>
+                <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ &gt; ngưỡng này, ESP32 sẽ tự động bật quạt (IN2 · 1.8W) làm mát.</small>
+              </div>
+
+              <div className="threshold-form-group" style={{ marginTop: 10 }}>
+                <label>
+                  <span>Ngưỡng độ ẩm đất bật van tưới:</span>
+                  <strong>&lt; {thresholdSoil}%</strong>
+                </label>
+                <div className="threshold-range-row">
+                  <input
+                    type="range"
+                    min="10"
+                    max="80"
+                    step="1"
+                    value={thresholdSoil}
+                    onChange={(e) => setThresholdSoil(parseInt(e.target.value, 10))}
+                  />
+                  <input
+                    type="number"
+                    className="threshold-val-input"
+                    value={thresholdSoil}
+                    step="1"
+                    min="10"
+                    max="80"
+                    onChange={(e) => setThresholdSoil(parseInt(e.target.value, 10) || 0)}
+                  />
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>%</span>
+                </div>
+                <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, ESP32 sẽ tự động mở van tưới (IN1 · 4.8W) cấp nước.</small>
+              </div>
+            </div>
+
+            <div className="threshold-dialog-footer">
+              <button type="button" className="button button-secondary" onClick={() => setShowThresholdModal(false)}>
+                Hủy bỏ
+              </button>
+              <button type="submit" className="button button-primary" disabled={savingThreshold}>
+                {savingThreshold ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
+                {savingThreshold ? 'Đang lưu & gửi lệnh...' : 'Lưu & Áp dụng ngay'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+
+    {/* CHART SECTION */}
     <section className="control-chart-section">
       <div className="control-chart-heading">
         <div>
@@ -535,6 +1046,36 @@ function ControlOverview({ devices, capability }) {
       </div>
       <ControlTrendChart telemetry={telemetry} series={series} range={range} loading={loading} />
     </section>
+
+    {/* FLOATING TOAST NOTIFICATION */}
+    {toastMessage && (
+      <aside
+        role="status"
+        aria-live="polite"
+        className={`floating-toast toast-${toastMessage.type}`}
+        style={{
+          position: 'fixed',
+          top: 24,
+          right: 24,
+          zIndex: 9999,
+          maxWidth: 440,
+          padding: '12px 18px',
+          borderRadius: 8,
+          boxShadow: '0 6px 18px rgba(0,0,0,0.14)',
+          background: toastMessage.type === 'warning' ? '#fffbeb' : toastMessage.type === 'error' ? '#fef2f2' : '#f0fdf4',
+          border: `1.5px solid ${toastMessage.type === 'warning' ? '#f59e0b' : toastMessage.type === 'error' ? '#ef4444' : '#22c55e'}`,
+          color: toastMessage.type === 'warning' ? '#92400e' : toastMessage.type === 'error' ? '#991b1b' : '#166534',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+      >
+        {toastMessage.type === 'warning' ? <AlertTriangle size={20} style={{ flexShrink: 0, color: '#d97706' }} /> : toastMessage.type === 'error' ? <CircleX size={20} style={{ flexShrink: 0, color: '#dc2626' }} /> : <Check size={20} style={{ flexShrink: 0, color: '#16a34a' }} />}
+        <span style={{ lineHeight: 1.4 }}>{toastMessage.text}</span>
+      </aside>
+    )}
   </>;
 }
 
