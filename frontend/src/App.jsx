@@ -540,12 +540,20 @@ function Dashboard() {
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdTemp, setThresholdTemp] = useState(35.0);
   const [thresholdSoil, setThresholdSoil] = useState(30.0);
+  const [draftTemp, setDraftTemp] = useState(35.0);
+  const [draftSoil, setDraftSoil] = useState(30.0);
   const [savingThreshold, setSavingThreshold] = useState(false);
 
   useEffect(() => {
     if (liveStatus?.tempThreshold != null) setThresholdTemp(liveStatus.tempThreshold);
     if (liveStatus?.soilThreshold != null) setThresholdSoil(liveStatus.soilThreshold);
   }, [liveStatus?.tempThreshold, liveStatus?.soilThreshold]);
+
+  function openThresholdModal() {
+    setDraftTemp(thresholdTemp);
+    setDraftSoil(thresholdSoil);
+    setShowThresholdModal(true);
+  }
 
   async function handleSaveThresholds(e) {
     if (e) e.preventDefault();
@@ -555,12 +563,16 @@ function Dashboard() {
       const updated = await apiRequest(`/api/devices/${encodeURIComponent(devId)}/thresholds`, {
         method: 'PUT',
         body: JSON.stringify({
-          temperatureHigh: parseFloat(thresholdTemp),
-          soilMoistureLow: parseFloat(thresholdSoil),
+          temperatureHigh: parseFloat(draftTemp),
+          soilMoistureLow: parseFloat(draftSoil),
           autoMode: liveStatus?.autoMode ?? true,
         }),
       });
-      if (updated) setLiveStatus(updated);
+      if (updated) {
+        setLiveStatus(updated);
+        setThresholdTemp(parseFloat(draftTemp));
+        setThresholdSoil(parseFloat(draftSoil));
+      }
       setShowThresholdModal(false);
     } catch (err) {
       console.error('Không thể lưu ngưỡng cấu hình:', err);
@@ -609,7 +621,7 @@ function Dashboard() {
         description="Theo dõi trạng thái thiết bị và điều kiện môi trường."
         actions={
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <button className="button button-primary" type="button" onClick={() => setShowThresholdModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <button className="button button-primary" type="button" onClick={openThresholdModal} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <Settings2 size={15} /> ⚙️ Chỉnh ngưỡng kích hoạt
             </button>
             <button className="button button-secondary" onClick={() => loadDashboard()} disabled={loading}>
@@ -698,7 +710,7 @@ function Dashboard() {
                 className="threshold-gear-btn"
                 title="Chỉnh ngưỡng kích hoạt tự động"
                 aria-label="Cài đặt ngưỡng"
-                onClick={() => setShowThresholdModal(true)}
+                onClick={openThresholdModal}
               >
                 <Settings2 size={16} />
               </button>
@@ -814,7 +826,7 @@ function Dashboard() {
                 <div className="threshold-form-group">
                   <label>
                     <span>Ngưỡng nhiệt độ bật quạt thông gió:</span>
-                    <strong>&gt; {thresholdTemp}°C</strong>
+                    <strong>&gt; {draftTemp}°C</strong>
                   </label>
                   <div className="threshold-range-row">
                     <input
@@ -822,17 +834,17 @@ function Dashboard() {
                       min="15"
                       max="50"
                       step="0.5"
-                      value={thresholdTemp}
-                      onChange={(e) => setThresholdTemp(parseFloat(e.target.value))}
+                      value={draftTemp}
+                      onChange={(e) => setDraftTemp(parseFloat(e.target.value))}
                     />
                     <input
                       type="number"
                       className="threshold-val-input"
-                      value={thresholdTemp}
+                      value={draftTemp}
                       step="0.5"
                       min="15"
                       max="50"
-                      onChange={(e) => setThresholdTemp(parseFloat(e.target.value) || 0)}
+                      onChange={(e) => setDraftTemp(parseFloat(e.target.value) || 0)}
                     />
                     <span style={{ fontSize: 12, fontWeight: 600 }}>°C</span>
                   </div>
@@ -842,7 +854,7 @@ function Dashboard() {
                 <div className="threshold-form-group" style={{ marginTop: 10 }}>
                   <label>
                     <span>Ngưỡng độ ẩm đất bật van tưới:</span>
-                    <strong>&lt; {thresholdSoil}%</strong>
+                    <strong>&lt; {draftSoil}%</strong>
                   </label>
                   <div className="threshold-range-row">
                     <input
@@ -850,17 +862,17 @@ function Dashboard() {
                       min="10"
                       max="80"
                       step="1"
-                      value={thresholdSoil}
-                      onChange={(e) => setThresholdSoil(parseInt(e.target.value, 10))}
+                      value={draftSoil}
+                      onChange={(e) => setDraftSoil(parseInt(e.target.value, 10))}
                     />
                     <input
                       type="number"
                       className="threshold-val-input"
-                      value={thresholdSoil}
+                      value={draftSoil}
                       step="1"
                       min="10"
                       max="80"
-                      onChange={(e) => setThresholdSoil(parseInt(e.target.value, 10) || 0)}
+                      onChange={(e) => setDraftSoil(parseInt(e.target.value, 10) || 0)}
                     />
                     <span style={{ fontSize: 12, fontWeight: 600 }}>%</span>
                   </div>
@@ -1064,7 +1076,15 @@ function Devices() {
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdTemp, setThresholdTemp] = useState(35.0);
   const [thresholdSoil, setThresholdSoil] = useState(30.0);
+  const [draftTemp, setDraftTemp] = useState(35.0);
+  const [draftSoil, setDraftSoil] = useState(30.0);
   const [savingThreshold, setSavingThreshold] = useState(false);
+
+  function openThresholdModal() {
+    setDraftTemp(thresholdTemp);
+    setDraftSoil(thresholdSoil);
+    setShowThresholdModal(true);
+  }
 
   useEffect(() => {
     try {
@@ -1199,12 +1219,16 @@ function Devices() {
       const updated = await apiRequest(`/api/devices/${encodeURIComponent(devId)}/thresholds`, {
         method: 'PUT',
         body: JSON.stringify({
-          temperatureHigh: parseFloat(thresholdTemp),
-          soilMoistureLow: parseFloat(thresholdSoil),
+          temperatureHigh: parseFloat(draftTemp),
+          soilMoistureLow: parseFloat(draftSoil),
           autoMode: liveStatus?.autoMode ?? true,
         }),
       });
-      if (updated) setLiveStatus(updated);
+      if (updated) {
+        setLiveStatus(updated);
+        setThresholdTemp(parseFloat(draftTemp));
+        setThresholdSoil(parseFloat(draftSoil));
+      }
       setShowThresholdModal(false);
     } catch (err) {
       setError(err.message || 'Không thể lưu ngưỡng cấu hình.');
@@ -1477,7 +1501,7 @@ function Devices() {
           <button
             type="button"
             className="btn-config-threshold"
-            onClick={() => setShowThresholdModal(true)}
+            onClick={openThresholdModal}
             title="Cấu hình ngưỡng tự động"
           >
             <Settings2 size={14} /> Cài đặt ngưỡng
@@ -1591,7 +1615,7 @@ function Devices() {
                 <div className="threshold-form-group">
                   <label>
                     <span>Ngưỡng nhiệt độ bật quạt thông gió:</span>
-                    <strong>&gt; {thresholdTemp}°C</strong>
+                    <strong>&gt; {draftTemp}°C</strong>
                   </label>
                   <div className="threshold-range-row">
                     <input
@@ -1599,17 +1623,17 @@ function Devices() {
                       min="15"
                       max="50"
                       step="0.5"
-                      value={thresholdTemp}
-                      onChange={(e) => setThresholdTemp(parseFloat(e.target.value))}
+                      value={draftTemp}
+                      onChange={(e) => setDraftTemp(parseFloat(e.target.value))}
                     />
                     <input
                       type="number"
                       className="threshold-val-input"
-                      value={thresholdTemp}
+                      value={draftTemp}
                       step="0.5"
                       min="15"
                       max="50"
-                      onChange={(e) => setThresholdTemp(parseFloat(e.target.value) || 0)}
+                      onChange={(e) => setDraftTemp(parseFloat(e.target.value) || 0)}
                     />
                     <span style={{ fontSize: 12, fontWeight: 600 }}>°C</span>
                   </div>
@@ -1619,7 +1643,7 @@ function Devices() {
                 <div className="threshold-form-group" style={{ marginTop: 10 }}>
                   <label>
                     <span>Ngưỡng độ ẩm đất bật van tưới:</span>
-                    <strong>&lt; {thresholdSoil}%</strong>
+                    <strong>&lt; {draftSoil}%</strong>
                   </label>
                   <div className="threshold-range-row">
                     <input
@@ -1627,17 +1651,17 @@ function Devices() {
                       min="10"
                       max="80"
                       step="1"
-                      value={thresholdSoil}
-                      onChange={(e) => setThresholdSoil(parseInt(e.target.value, 10))}
+                      value={draftSoil}
+                      onChange={(e) => setDraftSoil(parseInt(e.target.value, 10))}
                     />
                     <input
                       type="number"
                       className="threshold-val-input"
-                      value={thresholdSoil}
+                      value={draftSoil}
                       step="1"
                       min="10"
                       max="80"
-                      onChange={(e) => setThresholdSoil(parseInt(e.target.value, 10) || 0)}
+                      onChange={(e) => setDraftSoil(parseInt(e.target.value, 10) || 0)}
                     />
                     <span style={{ fontSize: 12, fontWeight: 600 }}>%</span>
                   </div>
