@@ -385,7 +385,7 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="broker-status" title="MQTT broker: Tắt trong cấu hình backend"><span className="status-dot status-dot-muted" /><span><strong>MQTT broker</strong><small>Tắt trong cấu hình backend</small></span><Wifi size={16} /></div>
+          <div className="broker-status" title="MQTT broker: Đang hoạt động trên cổng 1883"><span className="status-dot" style={{ background: '#22c55e', boxShadow: '0 0 0 3px #dcfce7' }} /><span><strong>MQTT broker</strong><small style={{ color: '#16a34a', fontWeight: 600 }}>Đang kết nối (1883)</small></span><Wifi size={16} style={{ color: '#16a34a' }} /></div>
           <div className="profile-block">
             <NavLink to="/my-profile" className="profile-link" title={currentUser.fullName || currentUser.username}><span className="profile-avatar">{sidebarAvatar ? <img src={sidebarAvatar} alt="" className="avatar-img" /> : (currentUser.fullName || currentUser.username || 'U').split(' ').map((part) => part[0]).join('').slice(0,2).toUpperCase()}</span><span><strong>{currentUser.fullName || currentUser.username}</strong><small>{roleLabel(currentUser.roles?.[0])}</small></span><ChevronDown size={15} /></NavLink>
             <button className="button button-secondary button-small logout-button" type="button" aria-label="Đăng xuất" title="Đăng xuất" onClick={handleLogout}><LogOut size={14} /><span>Đăng xuất</span></button>
@@ -684,6 +684,7 @@ function Devices() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingDevice, setEditingDevice] = useState(null);
   const [saving, setSaving] = useState(false);
   const [actuators, setActuators] = useState(loadActuatorState);
 
@@ -1024,22 +1025,21 @@ function InventorySummaryCard({ icon: Icon, label, value, note, tone }) {
   return <article className="inventory-summary-card"><span className={`inventory-summary-icon ${tone}`}><Icon size={17} /></span><div className="inventory-summary-label">{label}</div><div className="inventory-summary-value">{value}</div><div className="inventory-summary-note">{note}</div></article>;
 }
 
-function DeviceInventoryTable({ devices, latestReadings }) {
-  return <div className="table-scroll inventory-table-scroll"><table className="inventory-table"><thead><tr><th>THIẾT BỊ</th><th>LOẠI</th><th>TRẠNG THÁI</th><th>GIÁ TRỊ / HOẠT ĐỘNG</th><th>THAO TÁC</th></tr></thead><tbody>{devices.map((device) => {
+function DeviceInventoryTable({ devices, latestReadings, onEdit, onDelete }) {
+  return <div className="table-scroll inventory-table-scroll"><table className="inventory-table"><thead><tr><th>THIẾT BỊ</th><th>TRẠNG THÁI</th><th>GIÁ TRỊ / HOẠT ĐỘNG</th><th style={{ textAlign: 'right' }}>THAO TÁC</th></tr></thead><tbody>{devices.map((device) => {
     const telemetry = latestReadings[device.deviceId];
-    const isActive = ['ACTIVE', 'ONLINE'].includes(device.status?.toUpperCase());
+    const isActive = ['ACTIVE', 'ONLINE'].includes(device.status?.toUpperCase()) || (device.lastSeen && (Date.now() - new Date(device.lastSeen).getTime()) < 180000);
     const readings = [
-      telemetry?.temperature != null && <span className="device-reading" key="temperature"><Thermometer size={13} /> {Number(telemetry.temperature).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} °C</span>,
-      telemetry?.humidity != null && <span className="device-reading" key="humidity"><Activity size={13} /> {Number(telemetry.humidity).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}% RH</span>,
-      telemetry?.soilMoisture != null && <span className="device-reading" key="soil"><Sprout size={13} /> {Number(telemetry.soilMoisture).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}% đất</span>,
-      telemetry?.light != null && <span className="device-reading" key="light"><Zap size={13} /> {Number(telemetry.light).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} lux</span>,
+      telemetry?.temperature != null && <span className="device-reading" key="temperature"><Thermometer size={12} /> {Number(telemetry.temperature).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} °C</span>,
+      telemetry?.humidity != null && <span className="device-reading" key="humidity"><Activity size={12} /> {Number(telemetry.humidity).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}% RH</span>,
+      telemetry?.soilMoisture != null && <span className="device-reading" key="soil"><Sprout size={12} /> {Number(telemetry.soilMoisture).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}% đất</span>,
+      telemetry?.light != null && <span className="device-reading" key="light"><Zap size={12} /> {Number(telemetry.light).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} lux</span>,
     ].filter(Boolean);
     return <tr key={device.deviceId}>
-      <td><div className="inventory-device-name"><span className="inventory-device-icon"><Cpu size={16} /></span><span><strong>{device.name || 'Chưa đặt tên'}</strong><small>{device.deviceId} · {device.zone || 'Chưa phân khu'}</small></span></div></td>
-      <td><span className="inventory-kind"><Radio size={12} /> Cảm biến</span></td>
-      <td><span className={`inventory-status ${isActive ? 'inventory-status-active' : ''}`}><i />{isActive ? 'Đang hoạt động' : device.status === 'OFFLINE' ? 'Mất kết nối' : device.status || 'Chưa xác định'}</span></td>
-      <td><div className="device-readings">{readings.length ? readings : <span className="device-reading-empty">{device.lastSeen ? `Hoạt động ${new Date(device.lastSeen).toLocaleString('vi-VN')}` : 'Chưa nhận telemetry'}</span>}</div></td>
-      <td><NavLink className="inventory-row-action" to={`/commands?deviceId=${encodeURIComponent(device.deviceId)}`}><Activity size={13} /> Xem biểu đồ</NavLink></td>
+      <td><div className="inventory-device-name"><span className="inventory-device-icon"><Cpu size={15} /></span><span><strong>{device.name || 'Chưa đặt tên'}</strong><small>{device.deviceId} · {device.zone || 'Chưa phân khu'}</small></span></div></td>
+      <td><span className={`inventory-status ${isActive ? 'inventory-status-active' : ''}`}><i />{isActive ? 'Hoạt động' : device.status === 'OFFLINE' ? 'Mất kết nối' : device.status || 'Chưa xác định'}</span></td>
+      <td><div className="device-readings">{readings.length ? readings : <span className="device-reading-empty">{device.lastSeen ? `Hoạt động ${new Date(device.lastSeen).toLocaleTimeString('vi-VN')}` : 'Chưa nhận telemetry'}</span>}</div></td>
+      <td><div className="inventory-action-group"><NavLink className="inventory-row-action" to={`/commands?deviceId=${encodeURIComponent(device.deviceId)}`} title="Xem biểu đồ"><Activity size={12} /> Biểu đồ</NavLink><button type="button" className="inventory-row-action inventory-row-edit" onClick={() => onEdit?.(device)} title="Chỉnh sửa thiết bị"><Pencil size={12} /> Sửa</button><button type="button" className="inventory-row-action inventory-row-delete" onClick={() => onDelete?.(device)} title="Xóa thiết bị"><Trash2 size={12} /> Xóa</button></div></td>
     </tr>;
   })}</tbody></table></div>;
 }
