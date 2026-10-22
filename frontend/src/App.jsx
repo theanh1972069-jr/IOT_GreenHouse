@@ -34,6 +34,7 @@ import {
   LoaderCircle,
   LogOut,
   Menu,
+  Minus,
   PanelLeftClose,
   PanelLeftOpen,
   Play,
@@ -828,53 +829,99 @@ function Dashboard() {
                     <span>Ngưỡng nhiệt độ bật quạt thông gió:</span>
                     <strong>&gt; {draftTemp}°C</strong>
                   </label>
-                  <div className="threshold-range-row">
-                    <input
-                      type="range"
-                      min="15"
-                      max="50"
-                      step="0.5"
-                      value={draftTemp}
-                      onChange={(e) => setDraftTemp(parseFloat(e.target.value))}
-                    />
-                    <input
-                      type="number"
-                      className="threshold-val-input"
-                      value={draftTemp}
-                      step="0.5"
-                      min="15"
-                      max="50"
-                      onChange={(e) => setDraftTemp(parseFloat(e.target.value) || 0)}
-                    />
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>°C</span>
+                  <div className="threshold-stepper-row">
+                    <div className="threshold-stepper-box">
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-minus"
+                        onClick={() => setDraftTemp((prev) => Math.max(15, Number((prev - 0.5).toFixed(1))))}
+                        title="Giảm 0.5°C"
+                        aria-label="Giảm 0.5°C"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <input
+                        type="number"
+                        className="threshold-val-input stepper-input"
+                        value={draftTemp}
+                        step="0.5"
+                        min="15"
+                        max="50"
+                        onChange={(e) => setDraftTemp(parseFloat(e.target.value) || 0)}
+                      />
+                      <span className="stepper-unit-badge">°C</span>
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-plus"
+                        onClick={() => setDraftTemp((prev) => Math.min(50, Number((prev + 0.5).toFixed(1))))}
+                        title="Tăng 0.5°C"
+                        aria-label="Tăng 0.5°C"
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </div>
+
+                    <div className="threshold-slider-flex">
+                      <input
+                        type="range"
+                        min="15"
+                        max="50"
+                        step="0.5"
+                        value={draftTemp}
+                        onChange={(e) => setDraftTemp(parseFloat(e.target.value))}
+                      />
+                    </div>
                   </div>
                   <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ &gt; ngưỡng này, ESP32 sẽ tự động bật quạt (GPIO 33 · IN2) làm mát.</small>
                 </div>
 
-                <div className="threshold-form-group" style={{ marginTop: 10 }}>
+                <div className="threshold-form-group" style={{ marginTop: 12 }}>
                   <label>
                     <span>Ngưỡng độ ẩm đất bật van tưới:</span>
                     <strong>&lt; {draftSoil}%</strong>
                   </label>
-                  <div className="threshold-range-row">
-                    <input
-                      type="range"
-                      min="10"
-                      max="80"
-                      step="1"
-                      value={draftSoil}
-                      onChange={(e) => setDraftSoil(parseInt(e.target.value, 10))}
-                    />
-                    <input
-                      type="number"
-                      className="threshold-val-input"
-                      value={draftSoil}
-                      step="1"
-                      min="10"
-                      max="80"
-                      onChange={(e) => setDraftSoil(parseInt(e.target.value, 10) || 0)}
-                    />
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>%</span>
+                  <div className="threshold-stepper-row">
+                    <div className="threshold-stepper-box">
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-minus"
+                        onClick={() => setDraftSoil((prev) => Math.max(10, prev - 1))}
+                        title="Giảm 1%"
+                        aria-label="Giảm 1%"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <input
+                        type="number"
+                        className="threshold-val-input stepper-input"
+                        value={draftSoil}
+                        step="1"
+                        min="10"
+                        max="80"
+                        onChange={(e) => setDraftSoil(parseInt(e.target.value, 10) || 0)}
+                      />
+                      <span className="stepper-unit-badge">%</span>
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-plus"
+                        onClick={() => setDraftSoil((prev) => Math.min(80, prev + 1))}
+                        title="Tăng 1%"
+                        aria-label="Tăng 1%"
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </div>
+
+                    <div className="threshold-slider-flex">
+                      <input
+                        type="range"
+                        min="10"
+                        max="80"
+                        step="1"
+                        value={draftSoil}
+                        onChange={(e) => setDraftSoil(parseInt(e.target.value, 10))}
+                      />
+                    </div>
                   </div>
                   <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, ESP32 sẽ tự động mở van tưới (GPIO 25 · IN1) cấp nước.</small>
                 </div>
@@ -1617,53 +1664,99 @@ function Devices() {
                     <span>Ngưỡng nhiệt độ bật quạt thông gió:</span>
                     <strong>&gt; {draftTemp}°C</strong>
                   </label>
-                  <div className="threshold-range-row">
-                    <input
-                      type="range"
-                      min="15"
-                      max="50"
-                      step="0.5"
-                      value={draftTemp}
-                      onChange={(e) => setDraftTemp(parseFloat(e.target.value))}
-                    />
-                    <input
-                      type="number"
-                      className="threshold-val-input"
-                      value={draftTemp}
-                      step="0.5"
-                      min="15"
-                      max="50"
-                      onChange={(e) => setDraftTemp(parseFloat(e.target.value) || 0)}
-                    />
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>°C</span>
+                  <div className="threshold-stepper-row">
+                    <div className="threshold-stepper-box">
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-minus"
+                        onClick={() => setDraftTemp((prev) => Math.max(15, Number((prev - 0.5).toFixed(1))))}
+                        title="Giảm 0.5°C"
+                        aria-label="Giảm 0.5°C"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <input
+                        type="number"
+                        className="threshold-val-input stepper-input"
+                        value={draftTemp}
+                        step="0.5"
+                        min="15"
+                        max="50"
+                        onChange={(e) => setDraftTemp(parseFloat(e.target.value) || 0)}
+                      />
+                      <span className="stepper-unit-badge">°C</span>
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-plus"
+                        onClick={() => setDraftTemp((prev) => Math.min(50, Number((prev + 0.5).toFixed(1))))}
+                        title="Tăng 0.5°C"
+                        aria-label="Tăng 0.5°C"
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </div>
+
+                    <div className="threshold-slider-flex">
+                      <input
+                        type="range"
+                        min="15"
+                        max="50"
+                        step="0.5"
+                        value={draftTemp}
+                        onChange={(e) => setDraftTemp(parseFloat(e.target.value))}
+                      />
+                    </div>
                   </div>
                   <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ &gt; ngưỡng này, ESP32 sẽ tự động bật quạt (GPIO 33 · IN2) làm mát.</small>
                 </div>
 
-                <div className="threshold-form-group" style={{ marginTop: 10 }}>
+                <div className="threshold-form-group" style={{ marginTop: 12 }}>
                   <label>
                     <span>Ngưỡng độ ẩm đất bật van tưới:</span>
                     <strong>&lt; {draftSoil}%</strong>
                   </label>
-                  <div className="threshold-range-row">
-                    <input
-                      type="range"
-                      min="10"
-                      max="80"
-                      step="1"
-                      value={draftSoil}
-                      onChange={(e) => setDraftSoil(parseInt(e.target.value, 10))}
-                    />
-                    <input
-                      type="number"
-                      className="threshold-val-input"
-                      value={draftSoil}
-                      step="1"
-                      min="10"
-                      max="80"
-                      onChange={(e) => setDraftSoil(parseInt(e.target.value, 10) || 0)}
-                    />
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>%</span>
+                  <div className="threshold-stepper-row">
+                    <div className="threshold-stepper-box">
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-minus"
+                        onClick={() => setDraftSoil((prev) => Math.max(10, prev - 1))}
+                        title="Giảm 1%"
+                        aria-label="Giảm 1%"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <input
+                        type="number"
+                        className="threshold-val-input stepper-input"
+                        value={draftSoil}
+                        step="1"
+                        min="10"
+                        max="80"
+                        onChange={(e) => setDraftSoil(parseInt(e.target.value, 10) || 0)}
+                      />
+                      <span className="stepper-unit-badge">%</span>
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-plus"
+                        onClick={() => setDraftSoil((prev) => Math.min(80, prev + 1))}
+                        title="Tăng 1%"
+                        aria-label="Tăng 1%"
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </div>
+
+                    <div className="threshold-slider-flex">
+                      <input
+                        type="range"
+                        min="10"
+                        max="80"
+                        step="1"
+                        value={draftSoil}
+                        onChange={(e) => setDraftSoil(parseInt(e.target.value, 10))}
+                      />
+                    </div>
                   </div>
                   <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, ESP32 sẽ tự động mở van tưới (GPIO 25 · IN1) cấp nước.</small>
                 </div>

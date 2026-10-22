@@ -1528,28 +1528,111 @@ tbody tr:hover { background: #fbfcfa; }
   justify-content: space-between;
 }
 
-.threshold-range-row {
+/* ==========================================================================
+   THRESHOLD STEPPER WITH + AND - BUTTONS
+   ========================================================================== */
+.threshold-stepper-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
-.threshold-range-row input[type="range"] {
+.threshold-stepper-box {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.stepper-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  border: none;
+  background: #ffffff;
+  color: #0f766e;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.stepper-btn:hover {
+  background: #087b66;
+  color: #ffffff;
+  transform: scale(1.05);
+}
+
+.stepper-btn:active {
+  transform: scale(0.92);
+  background: #065f46;
+}
+
+.threshold-val-input.stepper-input {
+  width: 58px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 800;
+  text-align: center;
+  color: #0f766e;
+  padding: 0 2px;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.threshold-val-input.stepper-input::-webkit-outer-spin-button,
+.threshold-val-input.stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.stepper-unit-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  padding-right: 6px;
+  user-select: none;
+}
+
+.threshold-slider-flex {
   flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.threshold-slider-flex input[type="range"] {
+  width: 100%;
   accent-color: #087b66;
   height: 6px;
   cursor: pointer;
+  border-radius: 4px;
 }
 
-.threshold-val-input {
-  width: 72px;
-  padding: 6px 8px;
-  border: 1px solid #cbdcd4;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 700;
-  text-align: right;
-  color: #087b66;
+:root[data-theme="dark"] .threshold-stepper-box {
+  background: #202d26;
+  border-color: #314439;
+}
+:root[data-theme="dark"] .stepper-btn {
+  background: #283930;
+  color: #6ee7b7;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+:root[data-theme="dark"] .stepper-btn:hover {
+  background: #059669;
+  color: #ffffff;
+}
+:root[data-theme="dark"] .threshold-val-input.stepper-input {
+  color: #6ee7b7;
+}
+:root[data-theme="dark"] .stepper-unit-badge {
+  color: #94a3b8;
 }
 
 .threshold-dialog-footer {
