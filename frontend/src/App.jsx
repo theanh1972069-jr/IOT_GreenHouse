@@ -614,7 +614,7 @@ function Dashboard() {
         }
       />
       {error && <div className="notice notice-error"><AlertTriangle size={17} /><span>{error} Hãy kiểm tra backend và kết nối cơ sở dữ liệu.</span></div>}
-      <div className="refresh-status"><span className={`live-indicator ${apiOnline ? 'live-indicator-online' : 'live-indicator-offline'}`}><span /> API {apiOnline ? 'kết nối' : loading ? 'đang kiểm tra' : 'mất kết nối'}</span><span>Tự làm mới mỗi 10 giây</span><span>{lastUpdated ? `Cập nhật lúc ${lastUpdated.toLocaleTimeString('vi-VN')}` : 'Đang lấy dữ liệu...'}</span></div>
+      <div className="refresh-status"><span className={`live-indicator ${apiOnline ? 'live-indicator-online' : 'live-indicator-offline'}`}><span /> API {apiOnline ? 'kết nối' : loading ? 'đang kiểm tra' : 'mất kết nối'}</span><span>Tự làm mới mỗi 10 giây</span><span>{lastUpdated ? `Làm mới dữ liệu lúc ${lastUpdated.toLocaleTimeString('vi-VN')}` : 'Đang lấy dữ liệu...'}</span></div>
 
       {/* 3 Ô CÙNG HÀNG: CẢM BIẾN -> NGƯỠNG CẢNH BÁO -> THIẾT BỊ ĐIỀU KHIỂN */}
       <section className="dashboard-top-grid" aria-label="Tổng quan hệ thống">
@@ -668,8 +668,13 @@ function Dashboard() {
               )}
             </div>
           </div>
-          <small style={{ marginTop: '10px', fontSize: '11px', color: '#64748b' }}>
-            {isDeviceOnline ? 'Tự động cập nhật thời gian thực từ ESP32' : 'Node ESP32 đang ngoại tuyến'}
+          <small style={{ marginTop: '10px', fontSize: '11px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <Clock3 size={12} />
+            {isDeviceOnline && latest?.timestamp
+              ? `Thời gian cập nhật lần cuối: ${new Date(latest.timestamp).toLocaleTimeString('vi-VN')} (${timeAgo(latest.timestamp)})`
+              : isDeviceOnline
+              ? 'Đang chờ bản tin từ ESP32...'
+              : 'Node ESP32 đang ngoại tuyến'}
           </small>
         </article>
 
@@ -1274,7 +1279,7 @@ function Devices() {
       ),
       rule: (
         <span className="dev-rule-text">
-          <Clock3 size={13} /> {latest?.timestamp ? `Cập nhật ${new Date(latest.timestamp).toLocaleTimeString('vi-VN')}` : 'Định kỳ từ ESP32'}
+          <Clock3 size={13} /> {latest?.timestamp ? `Thời gian cập nhật lần cuối: ${new Date(latest.timestamp).toLocaleTimeString('vi-VN')} (${timeAgo(latest.timestamp)})` : 'Chưa nhận dữ liệu'}
         </span>
       ),
     },
@@ -1298,7 +1303,7 @@ function Devices() {
       ),
       rule: (
         <span className="dev-rule-text">
-          <Clock3 size={13} /> {latest?.timestamp ? `Cập nhật ${new Date(latest.timestamp).toLocaleTimeString('vi-VN')}` : 'Định kỳ từ ESP32'}
+          <Clock3 size={13} /> {latest?.timestamp ? `Thời gian cập nhật lần cuối: ${new Date(latest.timestamp).toLocaleTimeString('vi-VN')} (${timeAgo(latest.timestamp)})` : 'Chưa nhận dữ liệu'}
         </span>
       ),
     },
