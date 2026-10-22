@@ -6,6 +6,7 @@ import com.iot.greenhouse.entity.Role;
 import com.iot.greenhouse.entity.User;
 import com.iot.greenhouse.repository.RoleRepository;
 import com.iot.greenhouse.repository.UserRepository;
+import com.iot.greenhouse.repository.UserSessionRepository;
 import com.iot.greenhouse.service.AuditLogService;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,6 +18,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,9 +29,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 @RestController
@@ -44,6 +49,7 @@ public class UserRestController {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final UserSessionRepository sessionRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditLogService auditLogService;
 
@@ -54,10 +60,11 @@ public class UserRestController {
                                            @RequestParam(required = false) String search,
                                            @RequestParam(required = false) Integer page,
                                            @RequestParam(required = false) Integer size) {
+        ZonedDateTime now = ZonedDateTime.now();
         return PageResponse.from(
                 userRepository.findAll(buildSpecification(status, search),
                         PageParams.of(page, size, Sort.by(Sort.Direction.ASC, "fullName"))),
-                UserRestController::toUserView);
+                user -> toUserView(user, isOnline(user.getId(), now)));
     }
 
     private static Specification<User> buildSpecification(String status, String search) {
@@ -134,20 +141,77 @@ public class UserRestController {
         auditLogService.record(creator, httpRequest, "USER_CREATE", "User",
             String.valueOf(user.getId()), Map.of("username", username, "email", email, "role", roleName));
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(toUserView(user));
+        return ResponseEntity.status(HttpStatus.CREATED).body(toUserView(user, false));
     }
 
-    private static UserView toUserView(User user) {
+    private static UserView toUserView(User user, boolean online) {
         return new UserView(user.getId(), user.getUsername(), user.getEmail(), user.getFullName(), user.getStatus(),
                 user.getRoles() == null ? List.of()
                         : user.getRoles().stream().map(Role::getName).sorted().toList(),
-                user.getCreatedAt());
+                user.getCreatedAt(), online);
+    }
+
+    private boolean isOnline(Long userId, ZonedDateTime now) {
+        return userId != null && sessionRepository.existsByUserIdAndRevokedAtIsNullAndExpiresAtAfter(userId, now);
+    }
+
+    /**
+     * Changes a member's role. Administrator accounts are immutable through this
+     * endpoint so the system always keeps at least its existing admins.
+     */
+    @PatchMapping("/{id}/role")
+    @RequireRole("ADMIN")
+    @Transactional
+    public ResponseEntity<?> updateRole(@PathVariable Long id,
+                                        @RequestBody RoleRequest request,
+                                        @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor,
+                                        HttpServletRequest httpRequest) {
+        try {
+            return doUpdateRole(id, request, actor, httpRequest);
+        } catch (Exception e) {
+            org.slf4j.LoggerFactory.getLogger(UserRestController.class)
+                    .error("Failed to change role for user {}", id, e);
+            String detail = e.getMessage() == null ? e.toString() : e.getClass().getSimpleName() + ": " + e.getMessage();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiError("Không thể đổi vai trò (" + detail + ")."));
+        }
+    }
+
+    private ResponseEntity<?> doUpdateRole(Long id, RoleRequest request, User actor, HttpServletRequest httpRequest) {
+        String roleName = request == null || request.role() == null
+                ? "" : request.role().trim().toUpperCase(Locale.ROOT);
+        if (!ROLE_DESCRIPTIONS.containsKey(roleName)) {
+            return ResponseEntity.badRequest().body(new ApiError("Vai trò tài khoản không hợp lệ."));
+        }
+        Optional<User> userOpt = userRepository.findById(id);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        User user = userOpt.get();
+        boolean isAdmin = user.getRoles() != null && user.getRoles().stream()
+                .anyMatch(role -> "ADMIN".equalsIgnoreCase(role.getName()));
+        if (isAdmin) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ApiError("Không thể thay đổi vai trò của quản trị viên."));
+        }
+        Role role = roleRepository.findByName(roleName)
+                .orElseGet(() -> roleRepository.save(Role.builder()
+                        .name(roleName)
+                        .description(ROLE_DESCRIPTIONS.get(roleName))
+                        .build()));
+        user.setRoles(new HashSet<>(Set.of(role)));
+        User saved = userRepository.save(user);
+        auditLogService.record(actor, httpRequest, "USER_ROLE_CHANGE", "User",
+                String.valueOf(saved.getId()), Map.of("username", saved.getUsername(), "role", roleName));
+        return ResponseEntity.ok(toUserView(saved, isOnline(saved.getId(), ZonedDateTime.now())));
     }
 
     public record UserView(Long id, String username, String email, String fullName, String status,
-                           List<String> roles, ZonedDateTime createdAt) {}
+                           List<String> roles, ZonedDateTime createdAt, boolean online) {}
 
     public record CreateUserRequest(String username, String email, String password, String fullName, String role) {}
+
+    public record RoleRequest(String role) {}
 
     public record ApiError(String message) {}
 }
