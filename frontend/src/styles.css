@@ -1579,4 +1579,666 @@ tbody tr:hover { background: #fbfcfa; }
 :root[data-theme="dark"] .threshold-dialog-header h3 { color: #e3ece7; }
 :root[data-theme="dark"] .threshold-val-input { background: #202d26; border-color: #314439; color: #6ee7b7; }
 :root[data-theme="dark"] .actuator-power-row { background: #202c25; }
-:root[data-theme="dark"] .actuator-pin-tag { background: #26372e; color: #8fa69a; }
+:root[data-theme="dark"] .actuator-pin-tag { background: #26372e; color: #8fa69a; }
+
+/* ==========================================================================
+   DASHBOARD 3-CARD TOP ROW (Cảm biến -> Ngưỡng cảnh báo -> Thiết bị điều khiển)
+   ========================================================================== */
+.dashboard-top-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+@media (max-width: 1024px) {
+  .dashboard-top-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-top-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 200px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dashboard-top-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.top-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.top-card-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.top-card-kicker {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.top-card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.top-card-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.badge-online { background: #dcfce7; color: #15803d; }
+.badge-offline { background: #fee2e2; color: #b91c1c; }
+.badge-auto { background: #e0f2fe; color: #0369a1; }
+.badge-manual { background: #fef3c7; color: #b45309; }
+
+.threshold-gear-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #d5e4dd;
+  background: #f4faf7;
+  color: #087b66;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.threshold-gear-btn:hover {
+  background: #087b66;
+  color: #ffffff;
+  border-color: #087b66;
+  transform: rotate(30deg);
+}
+
+.card-link-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.card-link-icon:hover {
+  background: #087b66;
+  color: #ffffff;
+  border-color: #087b66;
+}
+
+/* SENSOR PILLS (CHIPS) INSIDE CARD 1 */
+.sensor-pills-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.sensor-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.sensor-pill-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.sensor-pill-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+
+.sensor-pill.tone-coral {
+  background: #fff7ed;
+  border-color: #ffedd5;
+  color: #c2410c;
+}
+.sensor-pill.tone-coral .sensor-pill-icon {
+  background: #ffedd5;
+  color: #ea580c;
+}
+
+.sensor-pill.tone-blue {
+  background: #f0f9ff;
+  border-color: #e0f2fe;
+  color: #0369a1;
+}
+.sensor-pill.tone-blue .sensor-pill-icon {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+.sensor-pill.tone-green {
+  background: #f0fdf4;
+  border-color: #dcfce7;
+  color: #15803d;
+}
+.sensor-pill.tone-green .sensor-pill-icon {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.sensor-pill-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.sensor-pill-val {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.sensor-pill-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px dashed #fca5a5;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* THRESHOLD RULE LIST INSIDE CARD 2 */
+.threshold-rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.threshold-rule-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.threshold-device-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rule-device-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+.rule-device-icon.tone-coral { background: #ffedd5; color: #ea580c; }
+.rule-device-icon.tone-blue { background: #e0f2fe; color: #0284c7; }
+.rule-device-icon.tone-yellow { background: #fef9c3; color: #ca8a04; }
+
+.rule-device-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.threshold-condition {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rule-desc {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.rule-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+}
+.rule-badge-temp { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+.rule-badge-soil { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+.rule-badge-manual { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+/* ACTUATOR MINI LIST INSIDE CARD 3 */
+.actuator-mini-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.actuator-mini-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  transition: all 0.2s;
+}
+
+.actuator-mini-item.mini-active {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.actuator-mini-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.actuator-mini-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+.actuator-mini-icon.icon-on { background: #dcfce7; color: #16a34a; }
+.actuator-mini-icon.icon-off { background: #f3f4f6; color: #9ca3af; }
+
+.actuator-mini-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.actuator-mini-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.actuator-mini-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.actuator-mini-badge.badge-on { background: #dcfce7; color: #15803d; }
+.actuator-mini-badge.badge-off { background: #f3f4f6; color: #6b7280; }
+.actuator-mini-badge.badge-offline { background: #fee2e2; color: #991b1b; }
+
+/* ACTUATOR CONTROL IN DEVICES PAGE TABLE */
+.actuator-control-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.actuator-state-text {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 5px;
+}
+.actuator-state-text.state-on {
+  background: #dcfce7;
+  color: #15803d;
+}
+.actuator-state-text.state-off {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.actuator-state-text.state-spin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #087b66;
+}
+
+.dev-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.dev-control-bar-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* DARK THEME STYLES FOR TOP CARDS */
+:root[data-theme="dark"] .dashboard-top-card {
+  background: #17231c;
+  border-color: #27392e;
+}
+:root[data-theme="dark"] .top-card-title {
+  color: #f1f5f3;
+}
+:root[data-theme="dark"] .threshold-gear-btn {
+  background: #1e2e25;
+  border-color: #2f4438;
+  color: #6ee7b7;
+}
+:root[data-theme="dark"] .threshold-gear-btn:hover {
+  background: #059669;
+  border-color: #059669;
+  color: #ffffff;
+}
+:root[data-theme="dark"] .card-link-icon {
+  background: #1e2e25;
+  border-color: #2f4438;
+  color: #94a3b8;
+}
+:root[data-theme="dark"] .card-link-icon:hover {
+  background: #059669;
+  border-color: #059669;
+  color: #ffffff;
+}
+:root[data-theme="dark"] .sensor-pill.tone-coral {
+  background: #2a1b15;
+  border-color: #3d2319;
+  color: #fdba74;
+}
+:root[data-theme="dark"] .sensor-pill.tone-coral .sensor-pill-icon {
+  background: #3d2319;
+  color: #fb923c;
+}
+:root[data-theme="dark"] .sensor-pill.tone-blue {
+  background: #14232c;
+  border-color: #1b3544;
+  color: #7dd3fc;
+}
+:root[data-theme="dark"] .sensor-pill.tone-blue .sensor-pill-icon {
+  background: #1b3544;
+  color: #38bdf8;
+}
+:root[data-theme="dark"] .sensor-pill.tone-green {
+  background: #14281e;
+  border-color: #1a3c2b;
+  color: #86efac;
+}
+:root[data-theme="dark"] .sensor-pill.tone-green .sensor-pill-icon {
+  background: #1a3c2b;
+  color: #4ade80;
+}
+:root[data-theme="dark"] .sensor-pill-label {
+  color: #cbd5e1;
+}
+:root[data-theme="dark"] .threshold-rule-item {
+  background: #1b2921;
+  border-color: #273c30;
+}
+:root[data-theme="dark"] .rule-device-name {
+  color: #e2e8f0;
+}
+:root[data-theme="dark"] .rule-desc {
+  color: #94a3b8;
+}
+:root[data-theme="dark"] .actuator-mini-item {
+  background: #1b2921;
+  border-color: #273c30;
+}
+:root[data-theme="dark"] .actuator-mini-item.mini-active {
+  background: #162f22;
+  border-color: #23543b;
+}
+:root[data-theme="dark"] .actuator-mini-name {
+  color: #e2e8f0;
+}
+:root[data-theme="dark"] .actuator-mini-icon.icon-off {
+  background: #233329;
+  color: #64748b;
+}
+:root[data-theme="dark"] .actuator-mini-icon.icon-on {
+  background: #1a422d;
+  color: #4ade80;
+}
+:root[data-theme="dark"] .dev-control-bar {
+  background: #17231c;
+  border-color: #27392e;
+}
+
+/* ==========================================================================
+   MODERN TOGGLE SWITCH (Gạt trực tiếp, không cần chữ trạng thái)
+   ========================================================================== */
+input[type="checkbox"][role="switch"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 38px;
+  height: 20px;
+  border-radius: 20px;
+  background-color: #cbd5e1;
+  outline: none;
+  cursor: pointer;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+  vertical-align: middle;
+  border: 1px solid #94a3b8;
+  display: inline-block;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+input[type="checkbox"][role="switch"]::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+input[type="checkbox"][role="switch"]:checked {
+  background-color: #10b981;
+  border-color: #059669;
+}
+
+input[type="checkbox"][role="switch"]:checked::before {
+  transform: translateX(17px);
+}
+
+input[type="checkbox"][role="switch"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+:root[data-theme="dark"] input[type="checkbox"][role="switch"] {
+  background-color: #334155;
+  border-color: #475569;
+}
+:root[data-theme="dark"] input[type="checkbox"][role="switch"]:checked {
+  background-color: #10b981;
+  border-color: #059669;
+}
+
+/* ==========================================================================
+   SENSOR SHOWCASE & TABLE STATUS DISPLAY (Theo mẫu thiết kế người dùng)
+   ========================================================================== */
+.sensor-showcase-box {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  margin-top: 6px;
+}
+
+.sensor-reading-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sensor-reading-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sensor-stack-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 2px 0;
+}
+
+.sensor-glyph-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #0d9488;
+}
+
+.sensor-bold-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f766e;
+  letter-spacing: -0.2px;
+}
+
+.sensor-dot-sep {
+  color: #94a3b8;
+  margin: 0 4px;
+  font-size: 13px;
+}
+
+.sensor-note-val {
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  margin-left: 2px;
+}
+
+:root[data-theme="dark"] .sensor-showcase-box {
+  background: #192720;
+  border-color: #273d31;
+}
+:root[data-theme="dark"] .sensor-stack-divider {
+  background: #273d31;
+}
+:root[data-theme="dark"] .sensor-glyph-icon {
+  color: #2dd4bf;
+}
+:root[data-theme="dark"] .sensor-bold-val {
+  color: #5eead4;
+}
+:root[data-theme="dark"] .sensor-note-val {
+  color: #94a3b8;
+}
+
+/* CỘT TRẠNG THÁI TRONG BẢNG THIẾT BỊ */
+.dev-sensor-reading {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+.dev-sensor-reading .sensor-glyph-icon {
+  color: #0d9488;
+}
+.dev-sensor-reading .sensor-bold-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f766e;
+}
+.dev-sensor-reading .sensor-dot-sep {
+  color: #94a3b8;
+  margin: 0 3px;
+}
+.dev-sensor-reading .sensor-note-val {
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+:root[data-theme="dark"] .dev-sensor-reading .sensor-glyph-icon {
+  color: #2dd4bf;
+}
+:root[data-theme="dark"] .dev-sensor-reading .sensor-bold-val {
+  color: #5eead4;
+}
+:root[data-theme="dark"] .dev-sensor-reading .sensor-note-val {
+  color: #94a3b8;
+}
+
+.actuator-switch-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.actuator-switch-spin {
+  color: #0d9488;
+}
+
+.dev-rule-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+}
+.dev-rule-text svg {
+  color: #0d9488;
+  flex-shrink: 0;
+}
+:root[data-theme="dark"] .dev-rule-text {
+  color: #cbd5e1;
+}
+:root[data-theme="dark"] .dev-rule-text svg {
+  color: #2dd4bf;
+}
+
+
