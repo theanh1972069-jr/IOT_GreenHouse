@@ -482,10 +482,15 @@ function Dashboard() {
     }
   }
 
+  const [, setClockTick] = useState(0);
   useEffect(() => {
     loadDashboard();
     const intervalId = window.setInterval(() => loadDashboard(false), refreshIntervalMs);
-    return () => window.clearInterval(intervalId);
+    const tickId = window.setInterval(() => setClockTick((t) => t + 1), 1000);
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearInterval(tickId);
+    };
   }, []);
 
   const onlineCount = devices.filter((device) => device.status?.toUpperCase() === 'ACTIVE').length;
@@ -671,7 +676,7 @@ function Dashboard() {
           <small style={{ marginTop: '10px', fontSize: '11px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '5px' }}>
             <Clock3 size={12} />
             {isDeviceOnline && latest?.timestamp
-              ? `Thời gian cập nhật lần cuối: ${new Date(latest.timestamp).toLocaleTimeString('vi-VN')} (${timeAgo(latest.timestamp)})`
+              ? `Cập nhật lần cuối: ${timeAgo(latest.timestamp)}`
               : isDeviceOnline
               ? 'Đang chờ bản tin từ ESP32...'
               : 'Node ESP32 đang ngoại tuyến'}
@@ -1109,10 +1114,15 @@ function Devices() {
     finally { if (showLoader) setLoading(false); }
   }
 
+  const [, setClockTick] = useState(0);
   useEffect(() => {
     loadDevices();
     const intervalId = window.setInterval(() => loadDevices(false), refreshIntervalMs);
-    return () => window.clearInterval(intervalId);
+    const tickId = window.setInterval(() => setClockTick((t) => t + 1), 1000);
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearInterval(tickId);
+    };
   }, []);
 
   async function handleToggle(actuatorKey, newState) {
@@ -1279,7 +1289,7 @@ function Devices() {
       ),
       rule: (
         <span className="dev-rule-text">
-          <Clock3 size={13} /> {latest?.timestamp ? `Thời gian cập nhật lần cuối: ${new Date(latest.timestamp).toLocaleTimeString('vi-VN')} (${timeAgo(latest.timestamp)})` : 'Chưa nhận dữ liệu'}
+          <Clock3 size={13} /> {latest?.timestamp ? `Cập nhật lần cuối: ${timeAgo(latest.timestamp)}` : 'Chưa nhận dữ liệu'}
         </span>
       ),
     },
@@ -1303,7 +1313,7 @@ function Devices() {
       ),
       rule: (
         <span className="dev-rule-text">
-          <Clock3 size={13} /> {latest?.timestamp ? `Thời gian cập nhật lần cuối: ${new Date(latest.timestamp).toLocaleTimeString('vi-VN')} (${timeAgo(latest.timestamp)})` : 'Chưa nhận dữ liệu'}
+          <Clock3 size={13} /> {latest?.timestamp ? `Cập nhật lần cuối: ${timeAgo(latest.timestamp)}` : 'Chưa nhận dữ liệu'}
         </span>
       ),
     },

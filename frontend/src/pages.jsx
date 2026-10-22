@@ -229,12 +229,14 @@ export function timeAgo(value) {
   if (!value) return '—';
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return '—';
-  const minutes = Math.floor((Date.now() - time) / 60000);
-  if (minutes < 1) return 'Vừa xong';
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
+  if (diffSeconds < 60) return `${Math.max(1, diffSeconds)} giây trước`;
+  const minutes = Math.floor(diffSeconds / 60);
   if (minutes < 60) return `${minutes} phút trước`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} giờ trước`;
-  return `${Math.floor(hours / 24)} ngày trước`;
+  const days = Math.floor(hours / 24);
+  return `${days} ngày trước`;
 }
 
 const ALERT_PAGE_SIZE = 7;
