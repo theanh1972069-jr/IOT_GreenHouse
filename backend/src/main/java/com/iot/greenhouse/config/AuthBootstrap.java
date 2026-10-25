@@ -8,9 +8,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Set;
 
 @Component
@@ -21,6 +24,12 @@ public class AuthBootstrap implements ApplicationRunner {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final JdbcTemplate jdbcTemplate;
+
+    @Value("${app.bootstrap.admin.password:${BOOTSTRAP_ADMIN_PASSWORD:}}")
+    private String bootstrapAdminPassword;
+
+    @Value("${app.bootstrap.admin.email:${BOOTSTRAP_ADMIN_EMAIL:}}")
+    private String bootstrapAdminEmail;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -39,10 +48,21 @@ public class AuthBootstrap implements ApplicationRunner {
             return;
         }
 
+        String adminEmail = bootstrapAdminEmail == null ? "" : bootstrapAdminEmail.trim().toLowerCase(Locale.ROOT);
+        if (bootstrapAdminPassword == null
+                || bootstrapAdminPassword.length() < 12
+                || bootstrapAdminPassword.getBytes(StandardCharsets.UTF_8).length > 72
+                || adminEmail.length() > 150
+                || !adminEmail.matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")) {
+            throw new IllegalStateException(
+                    "Set BOOTSTRAP_ADMIN_PASSWORD (12-72 UTF-8 bytes) and BOOTSTRAP_ADMIN_EMAIL "
+                            + "to a reachable email address before starting with an empty database.");
+        }
+
         User admin = User.builder()
                 .username("admin")
-                .email("admin@greenhouse.local")
-                .passwordHash(passwordEncoder.encode("admin123"))
+                .email(adminEmail)
+                .passwordHash(passwordEncoder.encode(bootstrapAdminPassword))
                 .fullName("System Administrator")
                 .status("ACTIVE")
                 .roles(Set.of(adminRole))

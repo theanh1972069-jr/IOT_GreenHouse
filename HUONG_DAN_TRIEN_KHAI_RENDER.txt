@@ -54,8 +54,23 @@ BƯỚC 3: TRIỂN KHAI BACKEND (SPRING BOOT DOCKER WEB SERVICE)
      - DB_URL = <Dán Internal Database URL từ Database vừa tạo ở Bước 2>
      - DB_USERNAME = postgres
      - DB_PASSWORD = <Mật khẩu database Render tạo cho bạn>
+     - BOOTSTRAP_ADMIN_PASSWORD = <Mật khẩu riêng tối thiểu 12 ký tự>
+     - BOOTSTRAP_ADMIN_EMAIL = <Email thật của admin>
      - CORS_ALLOWED_ORIGINS = *
      - MQTT_ENABLED = false  (Bật true nếu có Cloud MQTT Broker)
+     - EMAIL_ENABLED = true
+     - MAIL_HOST = <SMTP host của nhà cung cấp email>
+     - MAIL_PORT = 587
+     - MAIL_USERNAME = <tài khoản SMTP>
+     - MAIL_PASSWORD = <SMTP app password hoặc credential riêng>
+     - MAIL_FROM = <địa chỉ người gửi đã xác minh>
+     - PASSWORD_RESET_URL = https://<frontend-domain>/reset-password
+     - PASSWORD_RESET_REQUEST_LIMIT_PER_IP = 100
+   Không dùng mật khẩu đăng nhập email cá nhân. Lưu SMTP credential bằng Secret
+   Environment Variables của Render, không commit vào repository.
+   Trước khi cập nhật database hiện có, chạy database/migrations/004_password_reset.sql
+   một lần trên PostgreSQL. Database mới dùng database/create_tables.sql.
+   Các tài khoản hiện có cần có địa chỉ email mà chủ tài khoản truy cập được.
 5. Bấm "Create Web Service".
    Chờ Render build Docker image và khởi động. Khi thành công, bạn sẽ nhận được
    địa chỉ URL của backend (ví dụ: https://greenhouse-backend.onrender.com).

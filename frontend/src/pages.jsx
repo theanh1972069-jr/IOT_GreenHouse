@@ -1208,6 +1208,7 @@ export function ProfilePage() {
 
 export function InviteUserPage() {
   const [form, setForm] = useState({ username: '', email: '', fullName: '', password: '', role: 'OPERATOR' });
+  const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [created, setCreated] = useState(null);
@@ -1241,7 +1242,21 @@ export function InviteUserPage() {
           <label className="form-label">Tên đăng nhập<input className="form-control" required minLength="3" maxLength="50" autoComplete="off" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} /></label>
           <label className="form-label">Email<input className="form-control" required type="email" maxLength="150" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
           <label className="form-label">Họ và tên<input className="form-control" maxLength="150" autoComplete="name" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} /></label>
-          <label className="form-label">Mật khẩu tạm thời<input className="form-control" required type="password" minLength="8" maxLength="72" autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
+          <div className="form-label">
+            <label htmlFor="invite-user-password">Mật khẩu tạm thời</label>
+            <div className="password-input-wrap">
+              <input id="invite-user-password" className="form-control" required type={showPassword ? 'text' : 'password'} minLength="8" maxLength="72" autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
+              <button
+                className="password-toggle"
+                type="button"
+                aria-label={showPassword ? 'Ẩn mật khẩu tạm thời' : 'Hiện mật khẩu tạm thời'}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((visible) => !visible)}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
         </div>
         <fieldset className="role-picker">
           <legend>Chọn vai trò &amp; phân quyền</legend>

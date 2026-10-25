@@ -33,7 +33,10 @@ Frontend React / Vite (Port 5173 - Web Dashboard)
 - Tài khoản đăng nhập Web:
     Trang web: http://localhost:5173
     Username: admin
-    Password: admin123
+    Database mới cần đặt BOOTSTRAP_ADMIN_PASSWORD thành mật khẩu riêng (ít nhất
+    12 ký tự) và BOOTSTRAP_ADMIN_EMAIL thành địa chỉ email thật bạn sở hữu trước
+    lần khởi động backend đầu tiên. Không có mật khẩu mặc định.
+    Tài khoản đã tồn tại trong database giữ nguyên mật khẩu hiện tại.
 
 
 3. CÁC BƯỚC KHỞI CHẠY HỆ THỐNG MỖI KHI BẬT MÁY
@@ -49,11 +52,28 @@ Nếu cần khởi động lại Mosquitto thủ công, mở PowerShell (quyền
 [BƯỚC 2]: Chạy Backend Spring Boot
 Mở cửa sổ PowerShell số 1:
     cd c:\Users\Admin\Desktop\IOT_GreenHouse\backend
+    $env:BOOTSTRAP_ADMIN_PASSWORD="<mat-khau-rieng-it-nhat-12-ky-tu>"
+    $env:BOOTSTRAP_ADMIN_EMAIL="<email-admin-that>"
+    $env:EMAIL_ENABLED="true"
+    $env:MAIL_HOST="smtp.gmail.com"
+    $env:MAIL_PORT="587"
+    $env:MAIL_USERNAME="<email-gui>"
+    $env:MAIL_PASSWORD="<app-password-smtp>"
+    $env:MAIL_FROM="<email-gui-da-xac-minh>"
+    $env:PASSWORD_RESET_URL="http://localhost:5173/reset-password"
     $env:MQTT_ENABLED="true"
     $env:MQTT_BROKER_URL="tcp://localhost:1883"
     .\mvnw.cmd spring-boot:run
 
 (Database URL & mật khẩu Neon đã được cấu hình mặc định sẵn trong file application.properties).
+Với database đã tồn tại, chạy một lần migration database/migrations/004_password_reset.sql
+trước khi khởi động phiên bản backend có chức năng khôi phục mật khẩu. Cấu hình SMTP
+ở trên là ví dụ; với Gmail hãy dùng App Password, không dùng mật khẩu đăng nhập Gmail.
+Địa chỉ email lưu trong từng tài khoản phải thuộc về người dùng. Nếu tài khoản admin
+cũ đang dùng địa chỉ giả như admin@greenhouse.local, hãy cập nhật email đó trong
+PostgreSQL trước khi cần khôi phục mật khẩu.
+Mỗi email chỉ nhận tối đa 3 yêu cầu trong 15 phút; giới hạn theo IP có thể cấu hình
+bằng PASSWORD_RESET_REQUEST_LIMIT_PER_IP. Đặt EMAIL_ENABLED=false nếu chưa cấu hình SMTP.
 Chờ khoảng 10-15 giây đến khi thấy dòng: "Started GreenhouseApplication".
 
 
@@ -63,7 +83,8 @@ Mở cửa sổ PowerShell số 2:
     npm run dev
 
 Mở trình duyệt truy cập: http://localhost:5173
-Đăng nhập tài khoản: admin / admin123
+Đăng nhập bằng tài khoản đã được cấp. Với database mới, tài khoản admin dùng mật
+khẩu và email đã đặt trong BOOTSTRAP_ADMIN_PASSWORD / BOOTSTRAP_ADMIN_EMAIL lần đầu.
 
 
 4. CẤU HÌNH VÀ KẾT NỐI ESP32 VỚI SERVER
