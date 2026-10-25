@@ -10,10 +10,18 @@ services:
     envVars:
       - key: PORT
         value: 8080
-      - key: DB_URL
+      - key: DB_HOST
         fromDatabase:
           name: greenhouse-db
-          property: connectionString
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: greenhouse-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: greenhouse-db
+          property: database
       - key: DB_USERNAME
         fromDatabase:
           name: greenhouse-db
@@ -25,7 +33,27 @@ services:
       - key: MQTT_ENABLED
         value: "false" # Đổi thành true khi cấu hình Cloud MQTT Broker
       - key: CORS_ALLOWED_ORIGINS
-        value: "*"
+        value: https://greenhouse-frontend.onrender.com
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: EMAIL_ENABLED
+        value: "true"
+      - key: MAIL_HOST
+        value: smtp.gmail.com
+      - key: MAIL_PORT
+        value: "587"
+      - key: MAIL_USERNAME
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: PASSWORD_RESET_URL
+        value: https://greenhouse-frontend.onrender.com/reset-password
+      - key: PASSWORD_RESET_REQUEST_LIMIT_PER_IP
+        value: "100"
 
   # 2. Frontend React Vite (Static Site)
   - type: web
@@ -35,6 +63,9 @@ services:
     staticPublishPath: frontend/dist
     plan: free
     region: singapore
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://greenhouse-backend.onrender.com
     headers:
       - path: /*
         name: Cache-Control

@@ -22,7 +22,7 @@ Frontend React / Vite (Port 5173 - Web Dashboard)
     Host: ep-polished-shape-azdm3vs2-pooler.c-3.ap-southeast-1.aws.neon.tech
     Database Name: neondb
     Username: neondb_owner
-    Password: npg_W5yxhSiIq0HA
+    Password: <khai b?o ri?ng trong DB_PASSWORD; kh?ng l?u v?o Git>
     JDBC URL: jdbc:postgresql://ep-polished-shape-azdm3vs2-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
 
 - MQTT Broker (Mosquitto):
@@ -65,7 +65,8 @@ Mở cửa sổ PowerShell số 1:
     $env:MQTT_BROKER_URL="tcp://localhost:1883"
     .\mvnw.cmd spring-boot:run
 
-(Database URL & mật khẩu Neon đã được cấu hình mặc định sẵn trong file application.properties).
+URL Neon và username có giá trị mặc định trong application.properties; mỗi máy cần tự
+cấu hình DB_PASSWORD riêng (qua biến môi trường hoặc application-local.properties bị ignore).
 Với database đã tồn tại, chạy một lần migration database/migrations/004_password_reset.sql
 trước khi khởi động phiên bản backend có chức năng khôi phục mật khẩu. Cấu hình SMTP
 ở trên là ví dụ; với Gmail hãy dùng App Password, không dùng mật khẩu đăng nhập Gmail.
