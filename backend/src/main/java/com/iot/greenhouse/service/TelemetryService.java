@@ -22,6 +22,7 @@ public class TelemetryService {
     private final TelemetryRepository telemetryRepository;
     private final DeviceRepository deviceRepository;
     private final AlertEvaluationService alertEvaluationService;
+    private final DevicePresenceService devicePresenceService;
 
     @Transactional
     public void processTelemetryData(String deviceId, Telemetry telemetryData) {
@@ -32,6 +33,11 @@ public class TelemetryService {
         }
 
         Device device = deviceOpt.get();
+        if (!"ACTIVE".equalsIgnoreCase(device.getStatus())
+                && !"OFFLINE".equalsIgnoreCase(device.getStatus())) {
+            log.warn("Ignoring telemetry from device {} in status {}", deviceId, device.getStatus());
+            return;
+        }
         telemetryData.setDevice(device);
         if (telemetryData.getTimestamp() == null) {
             telemetryData.setTimestamp(ZonedDateTime.now());
@@ -39,6 +45,7 @@ public class TelemetryService {
         telemetryRepository.save(telemetryData);
 
         device.setLastSeen(ZonedDateTime.now());
+        devicePresenceService.markOnline(device);
         deviceRepository.save(device);
 
         log.info("Saved telemetry for device: {}", deviceId);

@@ -17,6 +17,8 @@ public interface AlertRepository extends JpaRepository<Alert, Long>, JpaSpecific
 
     List<Alert> findByStatusOrderByCreatedAtDesc(String status);
 
+    List<Alert> findByDevice_IdAndTypeAndStatusIn(Long deviceId, String type, Collection<String> statuses);
+
     /**
      * Guards against duplicate alerts: a breach only raises a new alert when the
      * device has no unresolved one of the same type.

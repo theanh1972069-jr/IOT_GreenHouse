@@ -593,7 +593,7 @@ function hardwareStageIndex(status) {
   }
 }
 
-const STALE_AFTER_MS = 5 * 60 * 1000;
+const STALE_AFTER_MS = 30 * 1000;
 
 export function DeviceLifecyclePage() {
   const currentUser = useMemo(getStoredSession, []);

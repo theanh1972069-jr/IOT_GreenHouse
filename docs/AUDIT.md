@@ -134,6 +134,7 @@ Không tự chọn giá trị hoặc âm thầm đổi giao thức vì firmware 
 - Thêm phân quyền Admin/Operator/Viewer theo zone với migration `003_user_zone_access.sql`; non-admin không được cấp zone mặc định. API thiết bị/telemetry/cấu hình/cảnh báo/lệnh lọc hoặc từ chối ngoài phạm vi và ghi audit khi truy cập trực tiếp bị từ chối. Admin có API/UI gán zone.
 - Ẩn nút đăng ký/chuyển trạng thái thiết bị khỏi người không phải Admin; role legacy `USER` được xem như Viewer ở các endpoint read có kiểm soát.
 - Bổ sung tự cập nhật tên/email, đổi mật khẩu có xác thực mật khẩu hiện tại, thu hồi toàn bộ session sau đổi mật khẩu và khóa/mở tài khoản Admin; ngăn vô hiệu hóa Admin hoạt động cuối cùng.
+- Thêm job phát hiện thiết bị `ACTIVE` không thấy telemetry trong 30 giây, đổi trạng thái `OFFLINE`, tạo cảnh báo dedupe; khi telemetry đến lại, chuyển `ACTIVE` và resolve alert offline. Đây là liveness dựa trên telemetry cũ; topic heartbeat/status/Last Will riêng chưa được triển khai.
 
 Token frontend vẫn nằm trong `localStorage`; đây là rủi ro XSS còn tồn tại. Chuyển sang cookie `HttpOnly` cần thay đổi đồng bộ cơ chế xác thực/CORS và bổ sung CSRF, chưa được thực hiện trong lượt sửa này.
 
