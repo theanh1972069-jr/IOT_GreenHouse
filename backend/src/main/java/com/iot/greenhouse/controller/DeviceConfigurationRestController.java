@@ -7,6 +7,7 @@ import com.iot.greenhouse.entity.User;
 import com.iot.greenhouse.repository.DeviceConfigurationRepository;
 import com.iot.greenhouse.repository.DeviceRepository;
 import com.iot.greenhouse.service.AuditLogService;
+import com.iot.greenhouse.service.ZoneAccessService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -25,16 +26,29 @@ public class DeviceConfigurationRestController {
     private final DeviceConfigurationRepository configurationRepository;
     private final DeviceRepository deviceRepository;
     private final AuditLogService auditLogService;
+    private final ZoneAccessService zoneAccessService;
 
     @GetMapping
+    @RequireRole({"ADMIN", "OPERATOR", "VIEWER"})
     @Transactional(readOnly = true)
-    public ResponseEntity<?> getConfiguration(@PathVariable String deviceId) {
+    public ResponseEntity<?> getConfiguration(
+            @PathVariable String deviceId,
+            @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor,
+            HttpServletRequest httpRequest) {
         return deviceRepository.findByDeviceId(deviceId)
-                .map(device -> configurationRepository.findByDeviceId(device.getId())
-                        .map(DeviceConfigurationRestController::toView)
-                        .orElseGet(() -> new ConfigurationView(null, deviceId, new BigDecimal("35.00"),
-                                new BigDecimal("30.00"), 10, true, null)))
-                .map(ResponseEntity::ok)
+                .map(device -> {
+                    if (!zoneAccessService.canAccess(actor, device.getZone())) {
+                        zoneAccessService.auditDenied(actor, httpRequest, "DeviceConfiguration",
+                                deviceId, device.getZone());
+                        return ResponseEntity.status(403)
+                                .body(new ApiError("Bạn không có quyền truy cập khu vực này."));
+                    }
+                    return configurationRepository.findByDeviceId(device.getId())
+                            .map(DeviceConfigurationRestController::toView)
+                            .map(ResponseEntity::ok)
+                            .orElseGet(() -> ResponseEntity.ok(new ConfigurationView(null, deviceId,
+                                    new BigDecimal("35.00"), new BigDecimal("30.00"), 10, true, null)));
+                })
                 .orElse(ResponseEntity.notFound().build());
     }
 

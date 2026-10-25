@@ -7,6 +7,7 @@ import com.iot.greenhouse.entity.Device;
 import com.iot.greenhouse.entity.User;
 import com.iot.greenhouse.repository.AlertRepository;
 import com.iot.greenhouse.service.AuditLogService;
+import com.iot.greenhouse.service.ZoneAccessService;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
@@ -32,6 +33,7 @@ public class AlertRestController {
 
     private final AlertRepository alertRepository;
     private final AuditLogService auditLogService;
+    private final ZoneAccessService zoneAccessService;
 
     /**
      * Filters are applied by the database. The previous implementation loaded the
@@ -39,21 +41,34 @@ public class AlertRestController {
      * cap was reported as "no results".
      */
     @GetMapping
+    @RequireRole({"ADMIN", "OPERATOR", "VIEWER"})
     @Transactional(readOnly = true)
     public PageResponse<AlertView> getAlerts(@RequestParam(required = false) String status,
                                              @RequestParam(required = false) String severity,
                                              @RequestParam(required = false) String search,
                                              @RequestParam(required = false) Integer page,
-                                             @RequestParam(required = false) Integer size) {
-        Specification<Alert> spec = buildSpecification(status, severity, search);
+                                             @RequestParam(required = false) Integer size,
+                                             @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor) {
+        boolean unrestricted = zoneAccessService.isAdministrator(actor);
+        Specification<Alert> spec = buildSpecification(status, severity, search,
+                unrestricted, zoneAccessService.accessibleZones(actor));
         Page<Alert> result = alertRepository.findAll(spec,
                 PageParams.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
         return PageResponse.from(result, AlertRestController::toView);
     }
 
-    private static Specification<Alert> buildSpecification(String status, String severity, String search) {
+    private static Specification<Alert> buildSpecification(String status, String severity, String search,
+                                                           boolean unrestricted, List<String> zones) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+            if (!unrestricted) {
+                if (zones.isEmpty()) {
+                    predicates.add(cb.disjunction());
+                } else {
+                    Join<Alert, Device> device = root.join("device", JoinType.LEFT);
+                    predicates.add(device.get("zone").in(zones));
+                }
+            }
 
             if (status != null && !status.isBlank() && !status.equalsIgnoreCase("ALL")) {
                 predicates.add(cb.equal(cb.upper(root.get("status")), status.trim().toUpperCase(Locale.ROOT)));
@@ -82,6 +97,12 @@ public class AlertRestController {
                                          HttpServletRequest request) {
         return alertRepository.findById(id)
                 .map(alert -> {
+                    if (!zoneAccessService.canAccess(actor, alert.getDevice().getZone())) {
+                        zoneAccessService.auditDenied(actor, request, "Alert", String.valueOf(id),
+                                alert.getDevice().getZone());
+                        return ResponseEntity.status(403)
+                                .body(new ApiError("Bạn không có quyền truy cập khu vực này."));
+                    }
                     if ("RESOLVED".equals(alert.getStatus())) {
                         return ResponseEntity.badRequest().body(new ApiError("Cảnh báo đã được xử lý."));
                     }
@@ -104,6 +125,12 @@ public class AlertRestController {
                                      HttpServletRequest request) {
         return alertRepository.findById(id)
                 .map(alert -> {
+                    if (!zoneAccessService.canAccess(actor, alert.getDevice().getZone())) {
+                        zoneAccessService.auditDenied(actor, request, "Alert", String.valueOf(id),
+                                alert.getDevice().getZone());
+                        return ResponseEntity.status(403)
+                                .body(new ApiError("Bạn không có quyền truy cập khu vực này."));
+                    }
                     alert.setStatus("RESOLVED");
                     alert.setResolvedAt(ZonedDateTime.now());
                     alert.setResolvedBy(actor);

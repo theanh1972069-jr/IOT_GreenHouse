@@ -5,8 +5,10 @@ import com.iot.greenhouse.config.RequireRole;
 import com.iot.greenhouse.entity.Role;
 import com.iot.greenhouse.entity.User;
 import com.iot.greenhouse.repository.RoleRepository;
+import com.iot.greenhouse.repository.DeviceRepository;
 import com.iot.greenhouse.repository.UserRepository;
 import com.iot.greenhouse.repository.UserSessionRepository;
+import com.iot.greenhouse.repository.UserZoneRepository;
 import com.iot.greenhouse.service.AuditLogService;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -50,6 +53,8 @@ public class UserRestController {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final UserSessionRepository sessionRepository;
+    private final UserZoneRepository userZoneRepository;
+    private final DeviceRepository deviceRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditLogService auditLogService;
 
@@ -206,12 +211,75 @@ public class UserRestController {
         return ResponseEntity.ok(toUserView(saved, isOnline(saved.getId(), ZonedDateTime.now())));
     }
 
+    @GetMapping("/{id}/zones")
+    @RequireRole("ADMIN")
+    @Transactional(readOnly = true)
+    public ResponseEntity<?> getUserZones(@PathVariable Long id) {
+        if (!userRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(userZoneRepository.findByUser_IdOrderByZoneAsc(id).stream()
+                .map(userZone -> userZone.getZone())
+                .toList());
+    }
+
+    @PutMapping("/{id}/zones")
+    @RequireRole("ADMIN")
+    @Transactional
+    public ResponseEntity<?> replaceUserZones(@PathVariable Long id,
+                                               @RequestBody ZoneAssignmentRequest request,
+                                               @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor,
+                                               HttpServletRequest httpRequest) {
+        Optional<User> userOpt = userRepository.findById(id);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        User target = userOpt.get();
+        boolean targetIsAdmin = target.getRoles() != null && target.getRoles().stream()
+                .anyMatch(role -> "ADMIN".equalsIgnoreCase(role.getName()));
+        if (targetIsAdmin) {
+            return ResponseEntity.badRequest().body(new ApiError("Quản trị viên có quyền toàn cục, không gán zone."));
+        }
+        if (request == null || request.zones() == null || request.zones().size() > 100) {
+            return ResponseEntity.badRequest().body(new ApiError("Danh sách zone không hợp lệ."));
+        }
+
+        List<String> availableZones = deviceRepository.findDistinctZones();
+        List<String> normalizedZones = new ArrayList<>();
+        for (String requestedZone : request.zones()) {
+            if (requestedZone == null || requestedZone.isBlank()) {
+                return ResponseEntity.badRequest().body(new ApiError("Zone không được để trống."));
+            }
+            String canonicalZone = availableZones.stream()
+                    .filter(zone -> zone.equalsIgnoreCase(requestedZone.trim()))
+                    .findFirst()
+                    .orElse(null);
+            if (canonicalZone == null) {
+                return ResponseEntity.badRequest().body(new ApiError("Zone không tồn tại."));
+            }
+            if (!normalizedZones.contains(canonicalZone)) {
+                normalizedZones.add(canonicalZone);
+            }
+        }
+
+        userZoneRepository.deleteByUser_Id(id);
+        normalizedZones.forEach(zone -> userZoneRepository.save(com.iot.greenhouse.entity.UserZone.builder()
+                .user(target)
+                .zone(zone)
+                .build()));
+        auditLogService.record(actor, httpRequest, "USER_ZONE_ACCESS_UPDATE", "User",
+                String.valueOf(id), Map.of("username", target.getUsername(), "zones", normalizedZones));
+        return ResponseEntity.ok(normalizedZones);
+    }
+
     public record UserView(Long id, String username, String email, String fullName, String status,
                            List<String> roles, ZonedDateTime createdAt, boolean online) {}
 
     public record CreateUserRequest(String username, String email, String password, String fullName, String role) {}
 
     public record RoleRequest(String role) {}
+
+    public record ZoneAssignmentRequest(List<String> zones) {}
 
     public record ApiError(String message) {}
 }

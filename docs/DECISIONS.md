@@ -1,6 +1,6 @@
 # Quyết định triển khai IoT Greenhouse
 
-Ngày: 2026-10-25  
+Ngày: 2026-10-25
 Trạng thái: các mặc định dưới đây được chọn để tiến hành triển khai; có thể thay đổi trước khi nạp firmware lên thiết bị thật.
 
 ## Giao thức MQTT

@@ -4,8 +4,10 @@ import com.iot.greenhouse.entity.Device;
 import com.iot.greenhouse.entity.Role;
 import com.iot.greenhouse.entity.User;
 import com.iot.greenhouse.repository.DeviceRepository;
+import com.iot.greenhouse.repository.AuditLogRepository;
 import com.iot.greenhouse.repository.RoleRepository;
 import com.iot.greenhouse.repository.UserRepository;
+import com.iot.greenhouse.repository.UserZoneRepository;
 import com.iot.greenhouse.support.TestDatabase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,15 +62,23 @@ class DeviceAndAuthorizationRestControllerTest extends TestDatabase {
     private DeviceRepository deviceRepository;
 
     @Autowired
+    private UserZoneRepository userZoneRepository;
+
+    @Autowired
+    private AuditLogRepository auditLogRepository;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
 
     private String adminToken;
     private String memberToken;
-        private String operatorToken;
+    private String operatorToken;
+    private Long memberId;
 
     @BeforeEach
     void setUp() throws Exception {
         deviceRepository.deleteAll();
+        userZoneRepository.deleteAll();
 
         Role adminRole = roleRepository.findByName("ADMIN")
                 .orElseGet(() -> roleRepository.save(Role.builder().name("ADMIN").description("admin").build()));
@@ -84,7 +94,7 @@ class DeviceAndAuthorizationRestControllerTest extends TestDatabase {
 
     private String login(String prefix, Role role) throws Exception {
         String username = prefix + "-" + UUID.randomUUID().toString().substring(0, 8);
-        userRepository.save(User.builder()
+        User user = userRepository.save(User.builder()
                 .username(username)
                 .email(username + "@it.local")
                 .passwordHash(passwordEncoder.encode("Passw0rd!23"))
@@ -92,6 +102,9 @@ class DeviceAndAuthorizationRestControllerTest extends TestDatabase {
                 .status("ACTIVE")
                 .roles(Set.of(role))
                 .build());
+        if (prefix.startsWith("it-member")) {
+            memberId = user.getId();
+        }
 
         MvcResult result = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -187,6 +200,35 @@ class DeviceAndAuthorizationRestControllerTest extends TestDatabase {
                                 {"deviceId":"%s","name":"Ok","zone":"Zone A","macAddress":"zz:zz"}
                                 """.formatted(uniqueDeviceId())))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void viewerOnlySeesAssignedZoneAndDeniedDetailAccessIsAudited() throws Exception {
+        Device inScope = deviceRepository.save(Device.builder()
+                .deviceId(uniqueDeviceId()).name("Zone A node").zone("Zone A").status("ACTIVE").build());
+        Device outOfScope = deviceRepository.save(Device.builder()
+                .deviceId(uniqueDeviceId()).name("Zone B node").zone("Zone B").status("ACTIVE").build());
+
+        mockMvc.perform(put("/api/users/{id}/zones", memberId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("zones", java.util.List.of("Zone A")))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0]").value("Zone A"));
+
+        mockMvc.perform(get("/api/devices").header("Authorization", "Bearer " + memberToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].deviceId")
+                        .value(org.hamcrest.Matchers.contains(inScope.getDeviceId())));
+
+        mockMvc.perform(get("/api/devices/{deviceId}", outOfScope.getDeviceId())
+                        .header("Authorization", "Bearer " + memberToken))
+                .andExpect(status().isForbidden());
+
+        org.assertj.core.api.Assertions.assertThat(auditLogRepository.findAll().stream()
+                .anyMatch(log -> "ACCESS_DENIED".equals(log.getAction())
+                        && outOfScope.getDeviceId().equals(log.getResourceId())))
+                .isTrue();
     }
 
     @Test
@@ -380,4 +422,3 @@ class DeviceAndAuthorizationRestControllerTest extends TestDatabase {
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
     }
 }
-

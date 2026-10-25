@@ -596,6 +596,9 @@ function hardwareStageIndex(status) {
 const STALE_AFTER_MS = 5 * 60 * 1000;
 
 export function DeviceLifecyclePage() {
+  const currentUser = useMemo(getStoredSession, []);
+  const canManageLifecycle = currentUser?.roles?.some((role) =>
+    String(role).replace(/^ROLE_/i, '').toUpperCase() === 'ADMIN');
   const { data, loading, error, refresh } = useApiCollection('/api/devices');
   const [selectedId, setSelectedId] = useState('');
   const [telemetry, setTelemetry] = useState([]);
@@ -747,7 +750,7 @@ export function DeviceLifecyclePage() {
           <div className="lc-card-kicker"><span>KẾT NỐI &amp; TÍN HIỆU</span><Wifi size={15} /></div>
           <div className="lc-conn"><i className={linkFresh ? 'lc-dot-online' : 'lc-dot-offline'} /><strong>{linkFresh ? 'Trực tuyến • Ổn định' : 'Ngoại tuyến'}</strong></div>
           <div className="lc-conn-note">{latest?.timestamp ? `Bản tin mới nhất: ${formatDate(latest.timestamp)}` : selected.lastSeen ? `Hoạt động cuối: ${formatDate(selected.lastSeen)}` : 'Chưa nhận telemetry'}</div>
-          <button
+          {canManageLifecycle && <button
             className="lc-btn-ghost"
             type="button"
             disabled={busy === 'MAINTENANCE' || busy === 'ACTIVE' || retired}
@@ -755,7 +758,7 @@ export function DeviceLifecyclePage() {
             onClick={() => changeStatus(inMaintenance ? 'ACTIVE' : 'MAINTENANCE')}
           >
             <Wrench size={14} /> {busy === 'MAINTENANCE' || busy === 'ACTIVE' ? 'Đang gửi...' : inMaintenance ? 'Kết thúc bảo trì' : 'Chế độ bảo trì'}
-          </button>
+          </button>}
         </article>
 
         <article className="lc-card">
@@ -763,7 +766,7 @@ export function DeviceLifecyclePage() {
           <div className="lc-actions-label">Điều khiển phần cứng</div>
           <div className="lc-actions-row">
             <button className="lc-btn-ghost" type="button" disabled title="Cần giao thức lệnh MQTT, backend chưa khả dụng"><RotateCcw size={14} /> Khởi động lại (Restart)</button>
-            <button
+            {canManageLifecycle && <button
               className="lc-btn-danger"
               type="button"
               disabled={busy === 'DECOMMISSIONED' || retired}
@@ -771,7 +774,7 @@ export function DeviceLifecyclePage() {
               onClick={() => changeStatus('DECOMMISSIONED', `Ngừng sử dụng "${selected.name || selected.deviceId}"?`)}
             >
               <CircleX size={14} /> {busy === 'DECOMMISSIONED' ? 'Đang gửi...' : 'Ngừng sử dụng'}
-            </button>
+            </button>}
           </div>
           {retired && <div className="lc-conn-note">Thiết bị đã kết thúc vòng đời.</div>}
         </article>
@@ -806,6 +809,12 @@ export function UsersPage() {
   const [status, setStatus] = useState('ALL');
   const [page, setPage] = useState(0);
   const [busyId, setBusyId] = useState(null);
+  const [zoneUser, setZoneUser] = useState(null);
+  const [zoneOptions, setZoneOptions] = useState([]);
+  const [selectedZones, setSelectedZones] = useState([]);
+  const [zoneLoading, setZoneLoading] = useState(false);
+  const [zoneSaving, setZoneSaving] = useState(false);
+  const [zoneError, setZoneError] = useState('');
   const [toasts, setToasts] = useState([]);
   const sessionUser = useMemo(getStoredSession, []);
   const myAvatar = useAvatar(sessionUser);
@@ -866,11 +875,47 @@ export function UsersPage() {
     }
   }
 
+  async function openZoneEditor(user) {
+    setZoneUser(user);
+    setZoneLoading(true);
+    setZoneError('');
+    try {
+      const [assigned, devices] = await Promise.all([
+        apiRequest(`/api/users/${user.id}/zones`),
+        apiRequest('/api/devices'),
+      ]);
+      setSelectedZones(Array.isArray(assigned) ? assigned : []);
+      setZoneOptions([...new Set(devices.map((device) => device.zone).filter(Boolean))].sort());
+    } catch (requestError) {
+      setZoneError(requestError.message || 'Không thể tải phạm vi zone.');
+    } finally {
+      setZoneLoading(false);
+    }
+  }
+
+  async function saveZoneAssignment(event) {
+    event.preventDefault();
+    if (!zoneUser || zoneSaving) return;
+    setZoneSaving(true);
+    setZoneError('');
+    try {
+      await apiRequest(`/api/users/${zoneUser.id}/zones`, {
+        method: 'PUT',
+        body: JSON.stringify({ zones: selectedZones }),
+      });
+      setZoneUser(null);
+    } catch (requestError) {
+      setZoneError(requestError.message || 'Không thể cập nhật phạm vi zone.');
+    } finally {
+      setZoneSaving(false);
+    }
+  }
+
   return <>
     <ModuleHeading eyebrow="QUẢN TRỊ / TRUY CẬP" title="Người dùng" description="Tra cứu tài khoản, vai trò và trạng thái trong cơ sở dữ liệu." actions={<><Link className="button button-secondary" to="/invite-user"><MailPlus size={15} /> Tạo tài khoản</Link><button className="button button-secondary" onClick={refresh}><RefreshCw size={15} /></button></>} />
     <ErrorNotice>{error}</ErrorNotice>
     <section className="table-panel"><div className="table-toolbar filter-toolbar"><SearchBox value={query} onChange={setQuery} placeholder="Tìm theo tên, email hoặc vai trò" /><label className="filter-select"><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">Mọi trạng thái</option><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option><option value="LOCKED">LOCKED</option></select></label><span className="toolbar-count">{meta.totalElements} tài khoản</span></div>
-      <TableFrame loading={loading} empty={data.length ? null : 'Chưa có tài khoản phù hợp.'}><thead><tr><th>TÀI KHOẢN</th><th>EMAIL</th><th>VAI TRÒ</th><th>TRẠNG THÁI</th><th>NGÀY TẠO</th></tr></thead><tbody>{data.map((user) => {
+      <TableFrame loading={loading} empty={data.length ? null : 'Chưa có tài khoản phù hợp.'}><thead><tr><th>TÀI KHOẢN</th><th>EMAIL</th><th>VAI TRÒ</th><th>PHẠM VI ZONE</th><th>TRẠNG THÁI</th><th>NGÀY TẠO</th></tr></thead><tbody>{data.map((user) => {
         const isAdmin = user.roles?.some((role) => String(role).replace(/^ROLE_/i, '').toUpperCase() === 'ADMIN');
         const primaryRole = user.roles?.[0];
         const presence = userPresenceMeta(user);
@@ -885,6 +930,9 @@ export function UsersPage() {
               <option value="" disabled>{primaryRole || 'Chọn vai trò'}</option>
               {editableRoles.map((role) => <option value={role} key={role}>{role}</option>)}
             </select>}</td>
+          <td>{isAdmin
+            ? <span className="cell-secondary">Toàn cục</span>
+            : <button type="button" className="button button-small button-secondary" onClick={() => openZoneEditor(user)}>Phân quyền zone</button>}</td>
           <td><span className={`status-pill ${presence.tone}`} title={`Tài khoản: ${user.status || '—'}${user.online === undefined ? '' : user.online ? ' · Có phiên đăng nhập' : ' · Không có phiên đăng nhập'}`}><span />{presence.label}</span></td>
           <td>{formatDate(user.createdAt)}</td>
         </tr>;
@@ -916,6 +964,26 @@ export function UsersPage() {
         ))}
       </div>
     )}
+    {zoneUser && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !zoneSaving) setZoneUser(null); }}>
+      <form className="modal" onSubmit={saveZoneAssignment}>
+        <div className="modal-heading"><div><div className="section-kicker">PHẠM VI TRUY CẬP</div><h2>Zone của @{zoneUser.username}</h2></div>
+          <button type="button" className="icon-button" aria-label="Đóng" disabled={zoneSaving} onClick={() => setZoneUser(null)}><X size={18} /></button>
+        </div>
+        {zoneError && <ErrorNotice>{zoneError}</ErrorNotice>}
+        {zoneLoading ? <LoadingState label="Đang tải các zone..." /> : <>
+          <label>Zone được phép truy cập
+            <select multiple value={selectedZones} onChange={(event) => setSelectedZones(Array.from(event.target.selectedOptions, (option) => option.value))} size={Math.min(Math.max(zoneOptions.length, 3), 8)}>
+              {zoneOptions.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+            </select>
+          </label>
+          {!zoneOptions.length && <EmptyState label="Chưa có zone; hãy đăng ký thiết bị trước." />}
+          <p className="cell-secondary">Giữ Ctrl (Windows) hoặc Command (macOS) để chọn nhiều zone. Không chọn zone nào sẽ khóa quyền xem dữ liệu cho tài khoản này.</p>
+        </>}
+        <div className="modal-actions"><button type="button" className="button button-secondary" disabled={zoneSaving} onClick={() => setZoneUser(null)}>Hủy</button>
+          <button className="button button-primary" disabled={zoneLoading || zoneSaving || !zoneOptions.length}>{zoneSaving ? 'Đang lưu...' : 'Lưu phạm vi'}</button>
+        </div>
+      </form>
+    </div>}
   </>;
 }
 

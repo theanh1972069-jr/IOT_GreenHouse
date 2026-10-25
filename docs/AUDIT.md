@@ -1,6 +1,6 @@
 # Báo cáo rà soát IoT Smart Greenhouse
 
-Ngày rà soát: 2026-10-25  
+Ngày rà soát: 2026-10-25
 Phạm vi: mã nguồn, cấu hình, schema, firmware và test đang có trong repository.
 
 Các phát hiện mô tả trạng thái trước khi áp dụng phần sửa an toàn ở cuối báo cáo.
@@ -131,6 +131,8 @@ Không tự chọn giá trị hoặc âm thầm đổi giao thức vì firmware 
 - API client frontend có timeout mặc định 15 giây, đưa status/body vào lỗi có cấu trúc và vẫn xóa session/điều hướng đăng nhập lại khi nhận 401.
 - Thêm `.env.example` chỉ chứa placeholder và quy tắc `.gitignore` để không đưa các file `.env.*` khác lên Git.
 - Cập nhật hai hướng dẫn chạy để bỏ credential mẫu và cảnh báo rõ broker local anonymous không được phơi ra Internet.
+- Thêm phân quyền Admin/Operator/Viewer theo zone với migration `003_user_zone_access.sql`; non-admin không được cấp zone mặc định. API thiết bị/telemetry/cấu hình/cảnh báo/lệnh lọc hoặc từ chối ngoài phạm vi và ghi audit khi truy cập trực tiếp bị từ chối. Admin có API/UI gán zone.
+- Ẩn nút đăng ký/chuyển trạng thái thiết bị khỏi người không phải Admin; role legacy `USER` được xem như Viewer ở các endpoint read có kiểm soát.
 
 Token frontend vẫn nằm trong `localStorage`; đây là rủi ro XSS còn tồn tại. Chuyển sang cookie `HttpOnly` cần thay đổi đồng bộ cơ chế xác thực/CORS và bổ sung CSRF, chưa được thực hiện trong lượt sửa này.
 
@@ -139,6 +141,6 @@ Quét bằng `rg` không còn tìm thấy credential mặc định trong working
 ### Kết quả xác minh
 
 - `frontend`: `npm run build` thành công.
-- `backend`: `mvnw test` BUILD SUCCESS, không có test thất bại; 55 test bị skip vì môi trường không có Docker/Testcontainers. Hai test mới cho bootstrap credential chạy thành công.
+- `backend`: `mvnw test` BUILD SUCCESS, không có test thất bại; 56 test bị skip vì môi trường không có Docker/Testcontainers. Test unit bootstrap credential và zone access chạy thành công; kiểm thử RBAC tích hợp zone chưa chạy do thiếu Docker.
 - `git diff --check`: không phát hiện whitespace error.
 - Secret scanner: `gitleaks` không cài sẵn; `rg` xác nhận working tree không còn giá trị credential mặc định, nhưng lịch sử Git vẫn có các commit cũ nêu trên.

@@ -45,6 +45,22 @@ CREATE TABLE IF NOT EXISTS user_roles (
         ON DELETE CASCADE
 );
 
+-- Zone grants constrain non-admin access to greenhouse data and actions.
+CREATE TABLE IF NOT EXISTS user_zones (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    zone VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user_zones_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+    CONSTRAINT uq_user_zones_user_zone UNIQUE (user_id, zone)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_zones_zone
+    ON user_zones(zone);
+
 -- user_sessions: bearer tokens live here so sessions survive a restart and can be
 -- shared across instances. Only the SHA-256 hash of the token is stored, never the
 -- token itself, so a database leak cannot be replayed against the API.

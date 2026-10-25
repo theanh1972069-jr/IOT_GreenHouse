@@ -6,6 +6,7 @@ import com.iot.greenhouse.entity.Device;
 import com.iot.greenhouse.entity.User;
 import com.iot.greenhouse.service.AuditLogService;
 import com.iot.greenhouse.service.DeviceService;
+import com.iot.greenhouse.service.ZoneAccessService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -41,17 +42,35 @@ public class DeviceRestController {
 
     private final DeviceService deviceService;
     private final AuditLogService auditLogService;
+    private final ZoneAccessService zoneAccessService;
 
     @GetMapping
-    public ResponseEntity<List<Device>> getAllDevices() {
-        return ResponseEntity.ok(deviceService.getAllDevices());
+    @RequireRole({"ADMIN", "OPERATOR", "VIEWER"})
+    public ResponseEntity<List<Device>> getAllDevices(
+            @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor) {
+        List<Device> devices = deviceService.getAllDevices();
+        if (zoneAccessService.isAdministrator(actor)) {
+            return ResponseEntity.ok(devices);
+        }
+        return ResponseEntity.ok(devices.stream()
+                .filter(device -> zoneAccessService.canAccess(actor, device.getZone()))
+                .toList());
     }
 
     @GetMapping("/{deviceId}")
-    public ResponseEntity<Device> getDevice(@PathVariable String deviceId) {
-        return deviceService.getDeviceByDeviceId(deviceId)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+    @RequireRole({"ADMIN", "OPERATOR", "VIEWER"})
+    public ResponseEntity<?> getDevice(@PathVariable String deviceId,
+                                       @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor,
+                                       HttpServletRequest httpRequest) {
+        Optional<Device> device = deviceService.getDeviceByDeviceId(deviceId);
+        if (device.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!zoneAccessService.canAccess(actor, device.get().getZone())) {
+            zoneAccessService.auditDenied(actor, httpRequest, "Device", deviceId, device.get().getZone());
+            return ResponseEntity.status(403).body(new ApiError("Bạn không có quyền truy cập khu vực này."));
+        }
+        return ResponseEntity.ok(device.get());
     }
 
     /**
