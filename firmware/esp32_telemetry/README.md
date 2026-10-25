@@ -45,9 +45,18 @@ Tạo qua UI: admin → **Thiết bị** → đăng ký với mã khớp `DEVICE
 
 ## 4. Firmware
 
-Source: `firmware/esp32_telemetry/esp32_telemetry.ino` (DHT22 + BH1750).
+Source: `firmware/esp32_telemetry/esp32_telemetry.ino` (DHT22 + HW-390).
 
-Arduino IDE cài: **PubSubClient**, **Adafruit BH1750 Library**.
+Van tưới được firmware tự ngắt sau tối đa 30 giây mở liên tục. Khi timeout xảy
+ra trong chế độ tự động, firmware không tự bật lại van cho đến khi độ ẩm đất
+đạt ngưỡng 60%. Giới hạn này cần được kiểm tra trên đúng van/bơm và lưu lượng
+thực tế trước khi vận hành.
+
+Firmware hiện vẫn sử dụng topic/schema MQTT cũ; chưa tương thích với topic mới
+`greenhouse/{site}/{device_id}/...`. Không chuyển backend sang topic mới trước
+khi firmware mới được kiểm tra và nạp lên toàn bộ ESP32.
+
+Arduino IDE cần cài: **PubSubClient**, **DHT sensor library** và **WiFiManager**.
 
 Sửa 4 giá trị:
 

@@ -32,7 +32,7 @@ Các phát hiện mô tả trạng thái trước khi áp dụng phần sửa an
 | `firmware/` | Có `esp32_telemetry/` và README riêng. |
 | `backend/` | Có Spring Boot, schema JPA, REST, MQTT adapter và test Java. |
 | `frontend/` | Có React/Vite; `pages.jsx` chứa nhiều trang trong một file lớn. |
-| `database/` | Có `create_tables.sql` và migration `002_user_sessions.sql`; chưa thấy migration quản lý các thay đổi schema khác. |
+| `database/` | Có `create_tables.sql` và migrations `002_user_sessions.sql`, `003_user_zone_access.sql`; các thay đổi schema lịch sử khác chưa được phản ánh đầy đủ bằng migrations. |
 | `deployment/` | Thiếu; không có Compose hoặc cấu hình Mosquitto. |
 | `hardware/` | Thiếu sơ đồ nối dây, danh sách linh kiện và chỗ lưu ảnh prototype. |
 | `tests/` (thư mục gốc) | Thiếu. Có test trong `backend/src/test/`; chưa có test frontend/firmware hay kiểm thử tích hợp MQTT. |
@@ -67,7 +67,7 @@ Các phát hiện mô tả trạng thái trước khi áp dụng phần sửa an
 | [High] | `backend/src/main/java/com/iot/greenhouse/service/AlertEvaluationService.java:30-92`; `backend/src/main/java/com/iot/greenhouse/controller/AlertRestController.java:77-113` | Alert engine hiện xét nhiệt độ cao và độ ẩm đất thấp, dedupe khi còn unresolved; thiếu độ ẩm không khí, sensor fault, offline, hysteresis/cooldown và audit cho auto-rule. Zone scope không được xét ở thao tác acknowledge/resolve. | Bổ sung nguồn cảnh báo theo dữ liệu đã thống nhất, dedupe/cooldown/hysteresis và audit nguyên nhân tự động; áp dụng scope zone cho mọi thao tác. |
 | [High] | `backend/src/main/java/com/iot/greenhouse/controller/DeviceRestController.java:62-112`; `backend/src/main/java/com/iot/greenhouse/service/DeviceService.java:35-48`; `database/create_tables.sql:69-104` | Có đăng ký/thay trạng thái và các status enum, nhưng API status nhận mọi trạng thái hợp lệ thay vì chuyển trạng thái hợp lệ; chưa có credential/ACL MQTT theo thiết bị, hw version, lifecycle audit đầy đủ hoặc thu hồi broker credential/ngắt client. | State machine có chuyển trạng thái rõ; audit mọi chuyển đổi; provision/disable MQTT identity và ACL; lưu hw/fw; không nhận ingest/lệnh khi khóa/thu hồi. |
 | [Medium] | `backend/src/main/java/com/iot/greenhouse/controller/DeviceConfigurationRestController.java:29-85`; `backend/src/main/java/com/iot/greenhouse/config/MqttConfig.java:14-49` | API lưu cấu hình DB và audit, nhưng không publish `config` retained; MQTT client dùng một credential backend chung, không có TLS bắt buộc. | Publish retained QoS 1 sau khi commit; cấu hình TLS/CA và broker ACL/credential riêng từng thiết bị. |
-| [Medium] | `database/create_tables.sql:145-177`; `database/migrations/` | Có index `(device_id, timestamp)` và retention 30 ngày; không có unique chống trùng telemetry. Migration hiện chỉ có `002_user_sessions.sql`, thiếu chuỗi migration đầy đủ cho schema hiện hành/đổi schema an toàn. Không thấy bảng tổng hợp dữ liệu lâu dài. | Thêm migration đánh số cho DB đang tồn tại; unique/index thích hợp; giữ aggregate lâu hơn theo quyết định retention. `ddl-auto=none` là lựa chọn an toàn đang có. |
+| [Medium] | `database/create_tables.sql:145-177`; `database/migrations/` | Có index `(device_id, timestamp)` và retention 30 ngày; không có unique chống trùng telemetry. Các migration hiện có mới bao phủ session và user-zone, chưa tái tạo đầy đủ schema hiện hành cho DB đang chạy. Không thấy bảng tổng hợp dữ liệu lâu dài. | Thêm migration đánh số cho DB đang tồn tại; unique/index thích hợp; giữ aggregate lâu hơn theo quyết định retention. `ddl-auto=none` là lựa chọn an toàn đang có. |
 | [Medium] | `backend/src/main/java/com/iot/greenhouse/controller/UserRestController.java:87-160`; `backend/src/main/java/com/iot/greenhouse/controller/AuthController.java:82-92` | Có tạo user và logout, nhưng chưa có endpoint đổi trạng thái user, cập nhật hồ sơ/đổi mật khẩu và thu hồi session gắn với các thao tác đó. | Hoàn thiện lifecycle user và audit; revoke session khi khóa/đổi mật khẩu. |
 | [Low] | `backend/src/main/java/com/iot/greenhouse/config/AuthInterceptor.java:83-89`; nhiều controller | Một số endpoint trả `ResponseEntity` ad-hoc; không thấy `@ControllerAdvice` định dạng lỗi thống nhất. Thông báo role denial không audit; một số code có thể trả chi tiết exception. | Chuẩn hóa error envelope/status bằng advice; không đưa stack trace/chi tiết nội bộ cho client; audit denial mà không ghi token/password. |
 
@@ -77,9 +77,9 @@ Các phát hiện mô tả trạng thái trước khi áp dụng phần sửa an
 |---|---|---|---|
 | [Blocker] | `firmware/esp32_telemetry/esp32_telemetry.ino:113-139, 186-205, 308-309` | Topic/payload là giao thức cũ (`greenhouse/{id}/...`, `/control`, payload phẳng); không có site, heartbeat/status/event, seq, timestamp, quality, fw hay command ack. | Chỉ migrate đồng bộ sau khi chốt site và kế hoạch tương thích; bổ sung schema/ack sau khi giao thức được thống nhất. |
 | [High] | `firmware/esp32_telemetry/esp32_telemetry.ino:63-65, 176-204, 272-317` | MQTT server mặc định IP riêng `192.168.1.220`, port nhập được; `mqtt.connect(device_id)` không truyền username/password riêng, TLS hay Last Will. Retry là chu kỳ cố định 5 giây, không backoff tăng dần. WiFiManager/NVS có dùng để lưu Wi-Fi, device ID, broker; chưa có quản lý MQTT secret theo thiết bị. | Cấu hình môi trường provision an toàn; MQTT identity riêng, TLS/ACL và LWT; exponential backoff có jitter; bỏ broker mặc định khỏi firmware phát hành. |
-| [High] | `firmware/esp32_telemetry/esp32_telemetry.ino:130-145, 176-190, 339-365` | Callback nhận lệnh bằng tìm chuỗi JSON, không xác thực cấu trúc/idempotency/expiry. Van không có timeout tự đóng. Điều khiển tự động tại node có ngưỡng cứng nhưng không phát sinh event/audit ở backend. | Parser JSON/schema; chống trùng và expiry; timer đóng van ở firmware với giới hạn đã xác nhận; phản hồi ack/event. |
+| [High] | `firmware/esp32_telemetry/esp32_telemetry.ino:130-145, 176-190, 339-365` | Callback nhận lệnh bằng tìm chuỗi JSON, không xác thực cấu trúc/idempotency/expiry; chưa gửi ack/event. Điều khiển tự động tại node có ngưỡng cứng nhưng không phát sinh event/audit ở backend. | Parser JSON/schema; chống trùng và expiry; phản hồi ack/event. Đã thêm timer đóng van 30 giây tại firmware; cần kiểm chứng trên board và với van thật trước khi vận hành. |
 | [Medium] | `firmware/esp32_telemetry/esp32_telemetry.ino:97-99, 339-354` | Chu kỳ đọc DHT22 2 giây và kiểm tra NaN lúc lấy mẫu đã có; khi đọc lỗi, firmware giữ giá trị tốt trước đó nhưng payload không có timestamp NTP, seq hay quality để UI phân biệt mẫu cũ với mẫu mới. | Giữ kiểm tra NaN; thêm thời điểm/seq/quality theo schema đã chốt để không trình bày số liệu cũ như mẫu mới. |
-| [Medium] | `firmware/esp32_telemetry/esp32_telemetry.ino:70-86, 231-242, 352-355` | Relay kích mức thấp và setup đặt HIGH trước OUTPUT — mặc định boot có vẻ an toàn. ADC dùng GPIO 34 (ADC1), phù hợp Wi-Fi; cảm biến đất chưa thấy điều khiển nguồn riêng hay hiệu chuẩn khô/ướt có tài liệu. Không thể xác nhận an toàn mạch tải/nguồn/diode chỉ từ firmware. | Giữ trạng thái relay fail-safe; bổ sung hiệu chuẩn và tài liệu phần cứng, kiểm tra độc lập điện áp/tải/diode; tuyệt đối không đấu điện lưới trong demo. |
+| [Medium] | `firmware/esp32_telemetry/esp32_telemetry.ino:70-86, 231-242, 352-355` | Relay kích mức thấp và setup đặt HIGH trước OUTPUT — mặc định boot có vẻ an toàn. ADC dùng GPIO 35 (ADC1), phù hợp Wi-Fi; cảm biến đất chưa thấy điều khiển nguồn riêng hay hiệu chuẩn khô/ướt có tài liệu. Không thể xác nhận an toàn mạch tải/nguồn/diode chỉ từ firmware. | Giữ trạng thái relay fail-safe; bổ sung hiệu chuẩn và tài liệu phần cứng, kiểm tra độc lập điện áp/tải/diode; tuyệt đối không đấu điện lưới trong demo. |
 
 ### D. Triển khai và bí mật
 
@@ -107,14 +107,11 @@ Các phát hiện mô tả trạng thái trước khi áp dụng phần sửa an
 
 ## Câu hỏi cần xác nhận
 
-Không tự chọn giá trị hoặc âm thầm đổi giao thức vì firmware và backend cần được triển khai đồng bộ:
+Các mặc định `{site}=site-01`, cutover atomic (không nhận topic cũ sau chuyển đổi), giới hạn van 30 giây, quản lý zone bởi Admin và cấp TLS/ACL secrets ngoài Git đã được ghi tại `docs/DECISIONS.md`. Chưa chuyển backend/firmware sang giao thức mới; mọi thiết bị cần nạp firmware mới trước cutover.
 
-1. Giá trị `{site}` cần dùng trong topic là gì (ví dụ một site cố định như `site-01`, hay mã site lấy từ cấu hình khi provision)?
-2. Khi chuyển sang topic mới, có cần backend nhận tạm topic/schema cũ `greenhouse/{device_id}/telemetry` và firmware hỗ trợ publish đồng thời để migrate dần không, hay chấp nhận đổi firmware + backend cùng lúc và ngừng schema cũ?
-3. Giới hạn thời gian mở van tối đa cần chốt là bao nhiêu giây/phút? Firmware phải enforce giới hạn cứng tại thiết bị.
-4. Phân quyền Viewer theo zone cần lấy danh sách zone từ đâu và ai được gán/quản lý scope? Hiện schema không có bảng user-zone.
-5. Với triển khai MQTT bảo mật, có thể mount/đưa Mosquitto password file, ACL và chứng chỉ TLS từ secret/volume bên ngoài Compose không? Không nên sinh hoặc commit khóa/chứng chỉ production vào repo.
-6. Có thể cung cấp PDF đề bài còn thiếu để xác minh chính xác các mục chấm 4.6 và 7 không?
+1. PDF đề bài `docs/ĐỀ_BÀI_ĐỒ_ÁN_KẾT_THÚC_HỌC_PHẦN.pdf` còn thiếu; vui lòng cung cấp để xác minh nguyên văn tiêu chí 4.6 và 7.
+2. Giá trị hiệu chuẩn khô/ướt HW-390 hiện là ví dụ trong firmware; cần đo trên đúng cảm biến và môi trường của đồ án trước khi dùng ngưỡng tự động tưới.
+3. Cần xác minh giới hạn 30 giây phù hợp lưu lượng van/bơm thật và kiểm tra relay/tải độc lập; chưa kiểm chứng phần cứng.
 
 ## Thứ tự xử lý khuyến nghị
 
@@ -135,6 +132,7 @@ Không tự chọn giá trị hoặc âm thầm đổi giao thức vì firmware 
 - Ẩn nút đăng ký/chuyển trạng thái thiết bị khỏi người không phải Admin; role legacy `USER` được xem như Viewer ở các endpoint read có kiểm soát.
 - Bổ sung tự cập nhật tên/email, đổi mật khẩu có xác thực mật khẩu hiện tại, thu hồi toàn bộ session sau đổi mật khẩu và khóa/mở tài khoản Admin; ngăn vô hiệu hóa Admin hoạt động cuối cùng.
 - Thêm job phát hiện thiết bị `ACTIVE` không thấy telemetry trong 30 giây, đổi trạng thái `OFFLINE`, tạo cảnh báo dedupe; khi telemetry đến lại, chuyển `ACTIVE` và resolve alert offline. Đây là liveness dựa trên telemetry cũ; topic heartbeat/status/Last Will riêng chưa được triển khai.
+- Thêm timer giới hạn mở van 30 giây ngay trên ESP32; khi ngắt do timeout, chế độ tưới tự động bị khóa đến khi đất đạt ngưỡng ẩm để không bật lại liên tục. Chưa biên dịch/nạp hoặc kiểm thử trên board thật.
 
 Token frontend vẫn nằm trong `localStorage`; đây là rủi ro XSS còn tồn tại. Chuyển sang cookie `HttpOnly` cần thay đổi đồng bộ cơ chế xác thực/CORS và bổ sung CSRF, chưa được thực hiện trong lượt sửa này.
 

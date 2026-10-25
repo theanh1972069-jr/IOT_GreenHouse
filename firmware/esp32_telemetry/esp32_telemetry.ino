@@ -87,6 +87,7 @@ const int WATER_VALUE = 1400;  // Nhúng vào cốc nước (100%)
 #define RELAY_OFF  HIGH
 
 bool valveState = false;
+bool valveAutoLockout = false;
 bool fanState   = false;
 bool lightState = false;
 
@@ -97,6 +98,7 @@ bool autoControlMode = true;
 static const uint32_t READ_INTERVAL_MS    = 2000;   // Đọc cảm biến mỗi 2 giây
 static const uint32_t PUBLISH_INTERVAL_MS = 10000;  // Gửi lên server mỗi 10 giây
 static const uint32_t MQTT_RETRY_MS       = 5000;
+static const uint32_t VALVE_MAX_OPEN_MS   = 30000;
 
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
@@ -104,6 +106,7 @@ PubSubClient mqtt(wifiClient);
 static uint32_t lastReadMs       = 0;
 static uint32_t lastPublishMs    = 0;
 static uint32_t lastMqttRetryMs  = 0;
+static uint32_t valveOpenedMs    = 0;
 
 float airTemp      = 0.0;
 float airHumidity  = 0.0;
@@ -121,6 +124,16 @@ void setRelay(int pin, bool state, const char* name) {
   Serial.println(state ? F(" -> BẬT (ON) [Đèn LED Relay SÁNG]") : F(" -> TẮT (OFF) [Đèn LED Relay TẮT]"));
 }
 
+void setValveState(bool state, const char* reason) {
+  if (state == valveState) return;
+
+  valveState = state;
+  if (state) {
+    valveOpenedMs = millis();
+  }
+  setRelay(RELAY_VALVE_PIN, state, reason);
+}
+
 // ============================ 6. XỬ LÝ LỆNH TỪ SERVER ========================
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   String message = "";
@@ -133,11 +146,9 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   Serial.println(message);
 
   if (message.indexOf("\"valve\":1") >= 0) {
-    valveState = true;
-    setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1)");
+    setValveState(true, "Van nước (IN1)");
   } else if (message.indexOf("\"valve\":0") >= 0) {
-    valveState = false;
-    setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1)");
+    setValveState(false, "Van nước (IN1)");
   }
 
   if (message.indexOf("\"fan\":1") >= 0) {
@@ -353,15 +364,16 @@ void loop() {
     float soilVoltage = soilRaw * (3.3 / 4095.0);
     soilMoisture = map(soilRaw, AIR_VALUE, WATER_VALUE, 0, 100);
     soilMoisture = constrain(soilMoisture, 0, 100);
+    if (soilMoisture >= 60) {
+      valveAutoLockout = false;
+    }
 
     // Tự động kích Relay theo ngưỡng (chỉ kích khi có số liệu hợp lệ)
     if (autoControlMode) {
-      if (soilMoisture < 30 && !valveState) {
-        valveState = true;
-        setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1) [TỰ ĐỘNG - Đất khô]");
+      if (soilMoisture < 30 && !valveState && !valveAutoLockout) {
+        setValveState(true, "Van nước (IN1) [TỰ ĐỘNG - Đất khô]");
       } else if (soilMoisture >= 60 && valveState) {
-        valveState = false;
-        setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1) [TỰ ĐỘNG - Đủ ẩm]");
+        setValveState(false, "Van nước (IN1) [TỰ ĐỘNG - Đủ ẩm]");
       }
 
       if (dhtValid && airTemp > 35.0 && !fanState) {
@@ -412,6 +424,11 @@ void loop() {
         publishTelemetry();
       }
     }
+  }
+
+  if (valveState && millis() - valveOpenedMs >= VALVE_MAX_OPEN_MS) {
+    setValveState(false, "Van nước (IN1) [GIỚI HẠN AN TOÀN 30 GIÂY]");
+    valveAutoLockout = true;
   }
 
   delay(50);
