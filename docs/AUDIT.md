@@ -141,6 +141,8 @@ Quét bằng `rg` không còn tìm thấy credential mặc định trong working
 ### Kết quả xác minh
 
 - `frontend`: `npm run build` thành công.
-- `backend`: `mvnw test` BUILD SUCCESS, không có test thất bại; 56 test bị skip vì môi trường không có Docker/Testcontainers. Test unit bootstrap credential và zone access chạy thành công; kiểm thử RBAC tích hợp zone chưa chạy do thiếu Docker.
+- `backend`: `mvnw clean test` BUILD SUCCESS; 79 test, 0 failure/error, 56 skipped vì Docker daemon không khả dụng cho Testcontainers. Unit tests presence (3), account/password, bootstrap credential và zone access chạy thành công; test tích hợp RBAC/DB chưa được xác minh.
 - `git diff --check`: không phát hiện whitespace error.
+- Firmware: CHƯA kiểm chứng bằng biên dịch/nạp; môi trường không có `arduino-cli`, PlatformIO (`pio`) hay board ESP32.
+- Docker Compose/Mosquitto: CHƯA kiểm chứng; Docker CLI có nhưng Docker daemon không chạy/kết nối được.
 - Secret scanner: `gitleaks` không cài sẵn; `rg` xác nhận working tree không còn giá trị credential mặc định, nhưng lịch sử Git vẫn có các commit cũ nêu trên.
