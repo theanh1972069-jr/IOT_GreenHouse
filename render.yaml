@@ -25,7 +25,9 @@ services:
       - key: MQTT_ENABLED
         value: "false" # Đổi thành true khi cấu hình Cloud MQTT Broker
       - key: CORS_ALLOWED_ORIGINS
-        value: "*"
+        value: "https://greenhouse-frontend.onrender.com"
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
 
   # 2. Frontend React Vite (Static Site)
   - type: web

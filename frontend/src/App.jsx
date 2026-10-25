@@ -94,7 +94,7 @@ function getStoredUser() {
 
 function LoginPage({ onLogin }) {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ identifier: 'admin', password: 'admin123' });
+  const [form, setForm] = useState({ identifier: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -161,10 +161,6 @@ function LoginPage({ onLogin }) {
                 autoComplete="current-password"
               />
             </label>
-
-            <div className="auth-helper-row">
-              <span className="auth-demo-box">Demo: admin / admin123</span>
-            </div>
 
             <button className="button button-primary auth-submit" type="submit" disabled={loading}>
               {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}

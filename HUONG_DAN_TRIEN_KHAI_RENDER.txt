@@ -5,7 +5,7 @@
 Dự án đã được cấu hình sẵn các file:
   - backend/Dockerfile       : Tự động đóng gói và chạy Spring Boot qua Docker
   - frontend/src/api.js      : Hỗ trợ biến môi trường VITE_API_BASE_URL
-  - backend/application.prop : Đã hỗ trợ cổng $PORT và CORS domain *.onrender.com
+  - backend/application.properties : Đọc cổng $PORT và allowlist CORS từ môi trường
   - render.yaml              : File Render Blueprint (cấu hình mẫu tự động)
 
 
@@ -54,7 +54,10 @@ BƯỚC 3: TRIỂN KHAI BACKEND (SPRING BOOT DOCKER WEB SERVICE)
      - DB_URL = <Dán Internal Database URL từ Database vừa tạo ở Bước 2>
      - DB_USERNAME = postgres
      - DB_PASSWORD = <Mật khẩu database Render tạo cho bạn>
-     - CORS_ALLOWED_ORIGINS = *
+     - CORS_ALLOWED_ORIGINS = https://greenhouse-frontend.onrender.com
+       (Chỉ cho phép đúng origin frontend; thay bằng hostname thực tế nếu khác.)
+     - BOOTSTRAP_ADMIN_PASSWORD = <đặt qua secret Environment của Render>
+       (Bắt buộc khi khởi tạo database chưa có user; không ghi secret vào Git.)
      - MQTT_ENABLED = false  (Bật true nếu có Cloud MQTT Broker)
 5. Bấm "Create Web Service".
    Chờ Render build Docker image và khởi động. Khi thành công, bạn sẽ nhận được
@@ -91,6 +94,8 @@ BƯỚC 5: LƯU Ý VỀ KẾT NỐI MQTT TỪ ESP32 LÊN CLOUD
 --------------------------------------------------------------------------------
 1. Render Web Service chỉ mở cổng HTTP/HTTPS (443/80), không mở cổng TCP 1883 trực tiếp
    ra ngoài internet cho ESP32.
+   Không để broker MQTT cổng 1883 công khai/anonymous. Chỉ bật MQTT khi đã cấu hình
+   broker TLS, xác thực riêng từng thiết bị, ACL theo topic và thông tin backend qua secret.
 2. Để ESP32 gửi dữ liệu từ xa lên Cloud qua internet, giải pháp chuẩn là dùng
    Cloud MQTT Broker miễn phí:
      - HiveMQ Cloud (Miễn phí 100 thiết bị, có bảo mật TLS)

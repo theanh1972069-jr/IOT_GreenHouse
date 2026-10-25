@@ -8,9 +8,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Set;
 
 @Component
@@ -21,6 +23,9 @@ public class AuthBootstrap implements ApplicationRunner {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final JdbcTemplate jdbcTemplate;
+
+    @Value("${app.bootstrap.admin.password:}")
+    private String bootstrapAdminPassword;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -39,10 +44,18 @@ public class AuthBootstrap implements ApplicationRunner {
             return;
         }
 
+        if (bootstrapAdminPassword == null
+                || bootstrapAdminPassword.length() < 12
+                || bootstrapAdminPassword.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new IllegalStateException(
+                    "A bootstrap admin password of at least 12 characters (maximum 72 UTF-8 bytes) "
+                            + "must be provided through BOOTSTRAP_ADMIN_PASSWORD when initializing an empty database.");
+        }
+
         User admin = User.builder()
                 .username("admin")
                 .email("admin@greenhouse.local")
-                .passwordHash(passwordEncoder.encode("admin123"))
+                .passwordHash(passwordEncoder.encode(bootstrapAdminPassword))
                 .fullName("System Administrator")
                 .status("ACTIVE")
                 .roles(Set.of(adminRole))

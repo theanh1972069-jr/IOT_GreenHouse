@@ -22,17 +22,24 @@ Frontend React / Vite (Port 5173 - Web Dashboard)
     Host: localhost (127.0.0.1) | Port: 5432
     Database Name: iot_greenhouse
     Username: postgres
-    Password: postgres
+    Password: tự đặt trong môi trường local; không dùng mật khẩu mẫu trong tài liệu
 
 - MQTT Broker (Mosquitto):
-    Host LAN: 192.168.1.220 | Port: 1883 (Lắng nghe 0.0.0.0, cho phép anonymous)
+    Host LAN: cấu hình trong WiFiManager | Port: 1883
+    CẢNH BÁO: broker hiện không có cấu hình xác thực/ACL trong repository.
+    Chỉ thử nghiệm trong mạng LAN riêng, không mở cổng 1883 ra Internet hoặc
+    chuyển tiếp cổng trên router. Không dùng cấu hình này cho triển khai thật.
     Topic Telemetry: greenhouse/esp32-01/telemetry
     Topic Điều khiển: greenhouse/esp32-01/control
 
 - Tài khoản đăng nhập Web:
     Trang web: http://localhost:5173
     Username: admin
-    Password: admin123
+    Với database mới, đặt BOOTSTRAP_ADMIN_PASSWORD thành một mật khẩu riêng,
+    đủ mạnh (ít nhất 12 ký tự) trước khi khởi động backend. Dùng giá trị đó
+    khi đăng nhập lần đầu; biến này không đổi mật khẩu ở database đã khởi tạo.
+    Nếu database cũ đã chứa tài khoản mẫu, cần đổi/thu hồi credential cũ theo
+    quy trình reset có kiểm soát trước khi dùng hệ thống.
 
 
 3. CÁC BƯỚC KHỞI CHẠY HỆ THỐNG MỖI KHI BẬT MÁY
@@ -51,7 +58,8 @@ Mở cửa sổ PowerShell số 1:
     cd c:\Users\Admin\Desktop\IOT_GreenHouse\backend
     $env:DB_URL="jdbc:postgresql://localhost:5432/iot_greenhouse"
     $env:DB_USERNAME="postgres"
-    $env:DB_PASSWORD="postgres"
+    $env:DB_PASSWORD="<mat-khau-postgres-local>"
+    $env:BOOTSTRAP_ADMIN_PASSWORD="<mat-khau-bootstrap-rieng-it-nhat-12-ky-tu>"
     $env:MQTT_ENABLED="true"
     $env:MQTT_BROKER_URL="tcp://localhost:1883"
     .\mvnw.cmd spring-boot:run
@@ -65,7 +73,7 @@ Mở cửa sổ PowerShell số 2:
     npm run dev
 
 Mở trình duyệt truy cập: http://localhost:5173
-Đăng nhập tài khoản: admin / admin123
+Đăng nhập tài khoản: admin / mật khẩu BOOTSTRAP_ADMIN_PASSWORD đã cấu hình
 
 
 4. CẤU HÌNH VÀ KẾT NỐI ESP32 VỚI SERVER
