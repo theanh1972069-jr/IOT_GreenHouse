@@ -272,6 +272,45 @@ public class UserRestController {
         return ResponseEntity.ok(normalizedZones);
     }
 
+    @PatchMapping("/{id}/status")
+    @RequireRole("ADMIN")
+    @Transactional
+    public ResponseEntity<?> updateAccountStatus(@PathVariable Long id,
+                                                  @RequestBody AccountStatusRequest request,
+                                                  @RequestAttribute(AuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE) User actor,
+                                                  HttpServletRequest httpRequest) {
+        String status = request == null || request.status() == null
+                ? "" : request.status().trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("ACTIVE", "INACTIVE", "LOCKED").contains(status)) {
+            return ResponseEntity.badRequest().body(new ApiError("Trạng thái tài khoản không hợp lệ."));
+        }
+        Optional<User> userOpt = userRepository.findById(id);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        User user = userOpt.get();
+        boolean isAdmin = user.getRoles() != null && user.getRoles().stream()
+                .anyMatch(role -> "ADMIN".equalsIgnoreCase(role.getName()));
+        if (isAdmin && !"ACTIVE".equals(status)
+                && userRepository.countByStatusAndRoles_Name("ACTIVE", "ADMIN") <= 1) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new ApiError("Không thể khóa quản trị viên hoạt động cuối cùng."));
+        }
+
+        String previousStatus = user.getStatus();
+        if (!status.equalsIgnoreCase(previousStatus)) {
+            user.setStatus(status);
+            userRepository.save(user);
+            if (!"ACTIVE".equals(status)) {
+                sessionRepository.findAllByUserIdAndRevokedAtIsNull(id)
+                        .forEach(session -> session.setRevokedAt(ZonedDateTime.now()));
+            }
+            auditLogService.record(actor, httpRequest, "USER_STATUS_CHANGE", "User", String.valueOf(id),
+                    Map.of("username", user.getUsername(), "from", previousStatus, "to", status));
+        }
+        return ResponseEntity.ok(toUserView(user, isOnline(id, ZonedDateTime.now())));
+    }
+
     public record UserView(Long id, String username, String email, String fullName, String status,
                            List<String> roles, ZonedDateTime createdAt, boolean online) {}
 
@@ -280,6 +319,8 @@ public class UserRestController {
     public record RoleRequest(String role) {}
 
     public record ZoneAssignmentRequest(List<String> zones) {}
+
+    public record AccountStatusRequest(String status) {}
 
     public record ApiError(String message) {}
 }

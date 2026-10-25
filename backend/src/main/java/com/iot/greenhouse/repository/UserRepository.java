@@ -20,6 +20,8 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     boolean existsByUsernameIgnoreCase(String username);
     boolean existsByEmailIgnoreCase(String email);
 
+    long countByStatusAndRoles_Name(String status, String roleName);
+
     @Query("select u from User u left join fetch u.roles r where lower(u.username) = lower(:login) or lower(u.email) = lower(:login)")
     Optional<User> findByUsernameOrEmail(@Param("login") String login);
 

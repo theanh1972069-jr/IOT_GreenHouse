@@ -41,7 +41,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { apiRequest, getStoredSession } from './api.js';
+import { apiRequest, clearSession, getStoredSession } from './api.js';
 import { fileToAvatarDataUrl, getPhone, roleLabel, setAvatar, setPhone, useAvatar } from './avatar.js';
 
 const refreshMs = 10000;
@@ -875,6 +875,24 @@ export function UsersPage() {
     }
   }
 
+  async function changeAccountStatus(user) {
+    const next = user.status === 'ACTIVE' ? 'LOCKED' : 'ACTIVE';
+    if (!window.confirm(`${next === 'LOCKED' ? 'Khóa' : 'Mở khóa'} tài khoản @${user.username}?`)) return;
+    setBusyId(user.id);
+    try {
+      await apiRequest(`/api/users/${user.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: next }),
+      });
+      pushToast('success', `Đã cập nhật trạng thái @${user.username}.`);
+      refresh();
+    } catch (requestError) {
+      pushToast('error', requestError.message || 'Không thể cập nhật trạng thái tài khoản.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function openZoneEditor(user) {
     setZoneUser(user);
     setZoneLoading(true);
@@ -915,7 +933,7 @@ export function UsersPage() {
     <ModuleHeading eyebrow="QUẢN TRỊ / TRUY CẬP" title="Người dùng" description="Tra cứu tài khoản, vai trò và trạng thái trong cơ sở dữ liệu." actions={<><Link className="button button-secondary" to="/invite-user"><MailPlus size={15} /> Tạo tài khoản</Link><button className="button button-secondary" onClick={refresh}><RefreshCw size={15} /></button></>} />
     <ErrorNotice>{error}</ErrorNotice>
     <section className="table-panel"><div className="table-toolbar filter-toolbar"><SearchBox value={query} onChange={setQuery} placeholder="Tìm theo tên, email hoặc vai trò" /><label className="filter-select"><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">Mọi trạng thái</option><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option><option value="LOCKED">LOCKED</option></select></label><span className="toolbar-count">{meta.totalElements} tài khoản</span></div>
-      <TableFrame loading={loading} empty={data.length ? null : 'Chưa có tài khoản phù hợp.'}><thead><tr><th>TÀI KHOẢN</th><th>EMAIL</th><th>VAI TRÒ</th><th>PHẠM VI ZONE</th><th>TRẠNG THÁI</th><th>NGÀY TẠO</th></tr></thead><tbody>{data.map((user) => {
+      <TableFrame loading={loading} empty={data.length ? null : 'Chưa có tài khoản phù hợp.'}><thead><tr><th>TÀI KHOẢN</th><th>EMAIL</th><th>VAI TRÒ</th><th>PHẠM VI ZONE</th><th>TRẠNG THÁI</th><th>NGÀY TẠO</th><th>THAO TÁC</th></tr></thead><tbody>{data.map((user) => {
         const isAdmin = user.roles?.some((role) => String(role).replace(/^ROLE_/i, '').toUpperCase() === 'ADMIN');
         const primaryRole = user.roles?.[0];
         const presence = userPresenceMeta(user);
@@ -935,6 +953,7 @@ export function UsersPage() {
             : <button type="button" className="button button-small button-secondary" onClick={() => openZoneEditor(user)}>Phân quyền zone</button>}</td>
           <td><span className={`status-pill ${presence.tone}`} title={`Tài khoản: ${user.status || '—'}${user.online === undefined ? '' : user.online ? ' · Có phiên đăng nhập' : ' · Không có phiên đăng nhập'}`}><span />{presence.label}</span></td>
           <td>{formatDate(user.createdAt)}</td>
+          <td>{!isAdmin && <button type="button" className="button button-small button-secondary" disabled={busyId === user.id} onClick={() => changeAccountStatus(user)}>{user.status === 'ACTIVE' ? 'Khóa' : 'Mở khóa'}</button>}</td>
         </tr>;
       })}</tbody></TableFrame>
       <Pager meta={meta} onPage={setPage} />
@@ -1283,6 +1302,9 @@ export function ProfilePage() {
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
   const [showPw, setShowPw] = useState({ current: false, next: false, confirm: false });
   const [uploading, setUploading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMessage, setProfileMessage] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const fileRef = useRef(null);
   const avatar = useAvatar(profile);
 
@@ -1323,6 +1345,44 @@ export function ProfilePage() {
     setPhone(profile, value);
   }
 
+  async function saveProfile() {
+    setProfileSaving(true);
+    setError('');
+    setProfileMessage('');
+    try {
+      const updated = await apiRequest('/api/auth/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ fullName: profile.fullName, email: profile.email }),
+      });
+      setProfile(updated);
+      setProfileMessage('Đã cập nhật hồ sơ.');
+    } catch (requestError) {
+      setError(requestError.message || 'Không thể cập nhật hồ sơ.');
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function changePassword() {
+    if (passwords.next !== passwords.confirm) {
+      setError('Mật khẩu mới và xác nhận không khớp.');
+      return;
+    }
+    setPasswordSaving(true);
+    setError('');
+    try {
+      await apiRequest('/api/auth/password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword: passwords.current, newPassword: passwords.next }),
+      });
+      clearSession();
+      window.location.assign('/login');
+    } catch (requestError) {
+      setError(requestError.message || 'Không thể đổi mật khẩu.');
+      setPasswordSaving(false);
+    }
+  }
+
   if (loading) {
     return <>
       <ErrorNotice>{error}</ErrorNotice>
@@ -1343,7 +1403,7 @@ export function ProfilePage() {
 
   const passwordFields = [
     { key: 'current', label: 'Mật khẩu hiện tại', placeholder: '••••••••••••' },
-    { key: 'next', label: 'Mật khẩu mới', placeholder: 'Tối thiểu 8 ký tự' },
+    { key: 'next', label: 'Mật khẩu mới', placeholder: 'Tối thiểu 12 ký tự' },
     { key: 'confirm', label: 'Xác nhận mật khẩu mới', placeholder: 'Nhập lại mật khẩu mới' },
   ];
 
@@ -1380,11 +1440,11 @@ export function ProfilePage() {
         </div>
         <label className="pf-field">
           <span>Họ và tên</span>
-          <span className="pf-input"><input value={profile.fullName || ''} disabled title="Do hệ thống quản lý" /><Pencil size={14} /></span>
+          <span className="pf-input"><input value={profile.fullName || ''} maxLength={150} onChange={(event) => setProfile((current) => ({ ...current, fullName: event.target.value }))} /><Pencil size={14} /></span>
         </label>
         <label className="pf-field">
           <span>Địa chỉ Email</span>
-          <span className="pf-input"><input value={profile.email || ''} disabled title="Do hệ thống quản lý" /><Mail size={14} /></span>
+          <span className="pf-input"><input type="email" value={profile.email || ''} maxLength={150} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} /><Mail size={14} /></span>
         </label>
         <label className="pf-field">
           <span>Số điện thoại liên hệ</span>
@@ -1394,6 +1454,8 @@ export function ProfilePage() {
           <span>Vai trò / Chức vụ</span>
           <span className="pf-input"><input value={roleLabel(primaryRole)} disabled title="Do quản trị viên phân quyền" /><ShieldCheck size={14} /></span>
         </label>
+        {profileMessage && <p className="cell-secondary">{profileMessage}</p>}
+        <button className="pf-submit" type="button" disabled={profileSaving} onClick={saveProfile}>{profileSaving ? 'Đang lưu...' : 'Lưu hồ sơ'}</button>
       </section>
 
       <section className="pf-card">
@@ -1418,8 +1480,8 @@ export function ProfilePage() {
             </span>
           </label>
         ))}
-        <button className="pf-submit" type="button" disabled title="Backend chưa có API đổi mật khẩu">
-          <LockKeyhole size={14} /> Cập nhật mật khẩu
+        <button className="pf-submit" type="button" disabled={passwordSaving} onClick={changePassword}>
+        <LockKeyhole size={14} /> {passwordSaving ? 'Đang cập nhật...' : 'Cập nhật mật khẩu'}
         </button>
       </section>
     </div>
