@@ -793,11 +793,23 @@ function Dashboard() {
 
   async function handleToggle(actuatorId, newState) {
     const devId = devices[0]?.deviceId || 'esp32-01';
+    const targetActuator = (actuatorId === 'lamp' || actuatorId === 'light') ? 'light' : (actuatorId === 'pump' || actuatorId === 'valve') ? 'valve' : actuatorId;
     setBusyActuator(actuatorId);
+    setLiveStatus((current) => {
+      if (!current || !current.actuators) return current;
+      return {
+        ...current,
+        actuators: current.actuators.map((a) =>
+          a.id === targetActuator
+            ? { ...a, state: newState, powerW: newState ? (a.ratedPowerW || (targetActuator === 'light' ? 9.6 : targetActuator === 'fan' ? 1.8 : 4.8)) : 0.0 }
+            : a
+        ),
+      };
+    });
     try {
       const updated = await apiRequest(`/api/devices/${encodeURIComponent(devId)}/control`, {
         method: 'POST',
-        body: JSON.stringify({ actuator: actuatorId, state: newState }),
+        body: JSON.stringify({ actuator: targetActuator, state: newState }),
       });
       if (updated) setLiveStatus(updated);
     } catch (err) {
@@ -979,7 +991,13 @@ function Dashboard() {
                       <span className={`actuator-mini-icon ${isOn ? 'icon-on' : 'icon-off'}`}>
                         <ActIcon size={14} />
                       </span>
-                      <span className="actuator-mini-name">{getActuatorName(act)}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span className="actuator-mini-name">{getActuatorName(act)}</span>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>
+                          {getActuatorPin(act)} · {act.ratedPowerW || (act.id === 'light' ? 9.6 : act.id === 'fan' ? 1.8 : 4.8)}W
+                          {isOn ? <span style={{ color: '#16a34a', marginLeft: 4 }}>• Đang bật</span> : null}
+                        </span>
+                      </div>
                     </div>
                     <div className="actuator-mini-right">
                       <input
@@ -1480,7 +1498,9 @@ function Devices() {
               setActuators((current) => ({
                 ...current,
                 fan: Boolean(isLiveOnline && fanAct?.state),
+                valve: Boolean(isLiveOnline && valveAct?.state),
                 pump: Boolean(isLiveOnline && valveAct?.state),
+                light: Boolean(isLiveOnline && lightAct?.state),
                 lamp: Boolean(isLiveOnline && lightAct?.state),
               }));
             }
@@ -1517,14 +1537,30 @@ function Devices() {
 
   async function handleToggle(actuatorKey, newState) {
     const devId = backendDevices[0]?.deviceId || 'esp32-01';
-    const targetActuator = actuatorKey === 'pump' ? 'valve' : actuatorKey === 'lamp' ? 'light' : actuatorKey;
+    const targetActuator = (actuatorKey === 'pump' || actuatorKey === 'valve') ? 'valve' : (actuatorKey === 'lamp' || actuatorKey === 'light') ? 'light' : actuatorKey;
     setBusyActuator(actuatorKey);
 
     // Optimistic local state update
     setActuators((current) => ({
       ...current,
       [actuatorKey]: newState,
+      [targetActuator]: newState,
+      ...(targetActuator === 'light' ? { lamp: newState, light: newState } : {}),
+      ...(targetActuator === 'valve' ? { pump: newState, valve: newState } : {}),
     }));
+
+    // Optimistically update liveStatus so switch updates without lag
+    setLiveStatus((current) => {
+      if (!current || !current.actuators) return current;
+      return {
+        ...current,
+        actuators: current.actuators.map((a) =>
+          a.id === targetActuator
+            ? { ...a, state: newState, powerW: newState ? (a.ratedPowerW || (targetActuator === 'light' ? 9.6 : targetActuator === 'fan' ? 1.8 : 4.8)) : 0.0 }
+            : a
+        ),
+      };
+    });
 
     try {
       const updated = await apiRequest(`/api/devices/${encodeURIComponent(devId)}/control`, {
@@ -1540,7 +1576,9 @@ function Devices() {
           setActuators((current) => ({
             ...current,
             fan: Boolean(updated.online && fanAct?.state),
+            valve: Boolean(updated.online && valveAct?.state),
             pump: Boolean(updated.online && valveAct?.state),
+            light: Boolean(updated.online && lightAct?.state),
             lamp: Boolean(updated.online && lightAct?.state),
           }));
         }
@@ -1574,7 +1612,7 @@ function Devices() {
       });
       if (updated) {
         setLiveStatus(updated);
-        setActuators((current) => ({ ...current, fan: false, pump: false, lamp: false }));
+        setActuators((current) => ({ ...current, fan: false, pump: false, lamp: false, valve: false, light: false }));
       }
     } catch (err) {
       setError(err.message || 'Lỗi ngắt thiết bị.');
@@ -1718,46 +1756,77 @@ function Devices() {
   // Đồng bộ trạng thái trực tuyến theo thời gian thực với backend liveStatus (khớp 100% với Dashboard)
   const online = Boolean(liveStatus?.online);
 
+  const fanLive = liveStatus?.actuators?.find((a) => a.id === 'fan');
+  const valveLive = liveStatus?.actuators?.find((a) => a.id === 'valve');
+  const lightLive = liveStatus?.actuators?.find((a) => a.id === 'light');
+
+  const isFanOn = Boolean(online && (fanLive ? fanLive.state : actuators.fan));
+  const isValveOn = Boolean(online && (valveLive ? valveLive.state : (actuators.valve ?? actuators.pump)));
+  const isLightOn = Boolean(online && (lightLive ? lightLive.state : (actuators.light ?? actuators.lamp)));
+
   const actuatorItems = [
     {
       id: 'fan',
       actuatorId: 'fan',
-      name: 'Quạt thông gió',
+      name: 'Quạt thông gió (IN2)',
+      pin: 'GPIO 33 (IN2)',
+      ratedPowerW: 1.8,
       kind: 'ACTUATOR',
-      on: Boolean(online && actuators.fan),
+      on: isFanOn,
       icon: Fan,
-      iconTone: online && actuators.fan ? 'dev-icon-green' : 'dev-icon-blue',
+      iconTone: isFanOn ? 'dev-icon-green' : 'dev-icon-blue',
       rule: (
         <span className="dev-rule-text">
-          <Fan size={13} /> Tự động khi nhiệt &gt; {thresholdTemp}°C
+          <Fan size={13} /> {liveStatus?.autoMode ? `Tự động khi nhiệt > ${thresholdTemp}°C` : 'Điều khiển thủ công'}
+          {Boolean(liveStatus?.fanOverrideSeconds > 0) && (
+            <span className="manual-override-pill" title="Đang can thiệp thủ công (bỏ qua tự động 5 phút)" style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309' }}>
+              {liveStatus.fanOverrideSeconds}s
+            </span>
+          )}
         </span>
       ),
     },
     {
-      id: 'pump',
+      id: 'valve',
+      alias: 'pump',
       actuatorId: 'valve',
-      name: 'Máy bơm tưới nước',
+      name: 'Van tưới nước (IN1)',
+      pin: 'GPIO 25 (IN1)',
+      ratedPowerW: 4.8,
       kind: 'ACTUATOR',
-      on: Boolean(online && actuators.pump),
+      on: isValveOn,
       icon: Droplets,
-      iconTone: online && actuators.pump ? 'dev-icon-green' : 'dev-icon-blue',
+      iconTone: isValveOn ? 'dev-icon-green' : 'dev-icon-blue',
       rule: (
         <span className="dev-rule-text">
-          <Droplet size={13} /> Tự động khi đất &lt; {thresholdSoil}%
+          <Droplet size={13} /> {liveStatus?.autoMode ? `Tự động khi đất < ${thresholdSoil}%` : 'Điều khiển thủ công'}
+          {Boolean(liveStatus?.valveOverrideSeconds > 0) && (
+            <span className="manual-override-pill" title="Đang can thiệp thủ công (bỏ qua tự động 5 phút)" style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309' }}>
+              {liveStatus.valveOverrideSeconds}s
+            </span>
+          )}
         </span>
       ),
     },
     {
-      id: 'lamp',
+      id: 'light',
+      alias: 'lamp',
       actuatorId: 'light',
-      name: 'Đèn quang hợp',
+      name: 'Đèn quang hợp (IN3)',
+      pin: 'GPIO 32 (IN3)',
+      ratedPowerW: 9.6,
       kind: 'ACTUATOR',
-      on: Boolean(online && actuators.lamp),
+      on: isLightOn,
       icon: Lightbulb,
-      iconTone: online && actuators.lamp ? 'dev-icon-green' : 'dev-icon-blue',
+      iconTone: isLightOn ? 'dev-icon-green' : 'dev-icon-blue',
       rule: (
         <span className="dev-rule-text">
-          <Lightbulb size={13} /> Tự động khi nhiệt &lt; {thresholdLightTemp}°C
+          <Lightbulb size={13} /> {liveStatus?.autoMode ? `Tự động khi nhiệt < ${thresholdLightTemp}°C (IN3)` : 'Điều khiển thủ công (IN3)'}
+          {Boolean(liveStatus?.lightOverrideSeconds > 0) && (
+            <span className="manual-override-pill" title="Đang can thiệp thủ công (bỏ qua tự động 5 phút)" style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309' }}>
+              {liveStatus.lightOverrideSeconds}s
+            </span>
+          )}
         </span>
       ),
     },
@@ -1765,6 +1834,8 @@ function Devices() {
       id: item.id,
       actuatorId: item.id,
       name: item.name,
+      pin: item.pin || '',
+      ratedPowerW: item.ratedPowerW || 0,
       kind: 'ACTUATOR',
       on: Boolean(online && item.on),
       icon: Cpu,
@@ -1885,7 +1956,7 @@ function Devices() {
         <article className="dev-summary-card">
           <div className="dev-summary-top"><span>Thiết bị điều khiển</span><span className={`dev-summary-icon ${online ? 'dev-icon-green' : 'dev-icon-blue'}`}><Cpu size={15} /></span></div>
           <div className="dev-summary-main"><strong>{online ? `${actuatorOnCount} / ${actuatorCount}` : `0 / ${actuatorCount}`}</strong><span>{online ? 'đang bật' : 'mất kết nối'}</span></div>
-          <div className="dev-summary-note">{online ? 'Quạt thông gió, Máy bơm, Đèn' : 'Ngoại tuyến (Mất kết nối)'}</div>
+          <div className="dev-summary-note">{online ? 'Quạt (IN2), Van (IN1), Đèn (IN3)' : 'Ngoại tuyến (Mất kết nối)'}</div>
         </article>
         <article className="dev-summary-card">
           <div className="dev-summary-top"><span>Kết nối &amp; Chế độ</span><span className="dev-summary-icon dev-icon-wifi"><Wifi size={15} /></span></div>
@@ -1967,7 +2038,15 @@ function Devices() {
                       <td>
                         <div className="dev-device-name">
                           <span className={`dev-device-icon ${item.iconTone}`}><Icon size={16} /></span>
-                          <strong>{item.name}</strong>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <strong>{item.name}</strong>
+                            {item.pin && (
+                              <small style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                                {item.pin} · {item.ratedPowerW ? `${item.ratedPowerW}W` : ''}
+                                {item.on && item.ratedPowerW ? <span style={{ color: '#16a34a', fontWeight: 600, marginLeft: 4 }}>• Đang chạy ({item.ratedPowerW}W)</span> : null}
+                              </small>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td>

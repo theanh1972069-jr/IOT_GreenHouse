@@ -275,6 +275,12 @@ public class DeviceLiveService {
      */
     public DeviceLiveStatus controlActuator(String deviceId, String actuatorId, boolean turnOn,
                                            User actor, HttpServletRequest httpRequest) {
+        if ("lamp".equalsIgnoreCase(actuatorId)) {
+            actuatorId = "light";
+        } else if ("pump".equalsIgnoreCase(actuatorId)) {
+            actuatorId = "valve";
+        }
+
         DeviceLiveStatus status = getOrCreateLiveStatus(deviceId);
 
         if ("all".equalsIgnoreCase(actuatorId)) {
