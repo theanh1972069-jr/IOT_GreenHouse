@@ -689,9 +689,9 @@ function Dashboard() {
   const latest = telemetry[0];
 
   const actuators = liveStatus?.actuators?.length ? liveStatus.actuators : [
-    { id: 'valve', name: 'Van tưới nước (IN1)', pin: 'GPIO 25 (IN1)', type: 'VALVE', state: false },
-    { id: 'fan', name: 'Quạt thông gió (IN2)', pin: 'GPIO 33 (IN2)', type: 'FAN', state: false },
-    { id: 'light', name: 'Đèn quang hợp (IN3)', pin: 'GPIO 32 (IN3)', type: 'LIGHT', state: false },
+    { id: 'valve', name: 'Van tưới nước', type: 'VALVE', state: false },
+    { id: 'fan', name: 'Quạt thông gió', type: 'FAN', state: false },
+    { id: 'light', name: 'Đèn quang hợp', type: 'LIGHT', state: false },
   ];
   const isDeviceOnline = Boolean(liveStatus?.online);
   const activeCount = isDeviceOnline ? actuators.filter((a) => a.state).length : 0;
@@ -803,18 +803,10 @@ function Dashboard() {
 
   function getActuatorName(act) {
     if (!act) return '';
-    if (act.id === 'valve') return 'Van tưới nước (IN1)';
-    if (act.id === 'fan') return 'Quạt thông gió (IN2)';
-    if (act.id === 'light') return 'Đèn quang hợp (IN3)';
-    return act.name;
-  }
-
-  function getActuatorPin(act) {
-    if (!act) return '';
-    if (act.id === 'valve') return 'GPIO 25 (IN1)';
-    if (act.id === 'fan') return 'GPIO 33 (IN2)';
-    if (act.id === 'light') return 'GPIO 32 (IN3)';
-    return act.pin;
+    if (act.id === 'valve') return 'Van tưới nước';
+    if (act.id === 'fan') return 'Quạt thông gió';
+    if (act.id === 'light') return 'Đèn quang hợp';
+    return String(act.name || '').replace(/\s*\([^)]*\)$/, '').trim() || act.name;
   }
 
   async function handleToggle(actuatorId, newState) {
@@ -1019,13 +1011,7 @@ function Dashboard() {
                       <span className={`actuator-mini-icon ${isOn ? 'icon-on' : 'icon-off'}`}>
                         <ActIcon size={14} />
                       </span>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span className="actuator-mini-name">{getActuatorName(act)}</span>
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>
-                          {getActuatorPin(act)} · {act.ratedPowerW || (act.id === 'light' ? 9.6 : act.id === 'fan' ? 1.8 : 4.8)}W
-                          {isOn ? <span style={{ color: '#16a34a', marginLeft: 4 }}>• Đang bật</span> : null}
-                        </span>
-                      </div>
+                      <span className="actuator-mini-name">{getActuatorName(act)}</span>
                     </div>
                     <div className="actuator-mini-right">
                       <input
@@ -1115,7 +1101,7 @@ function Dashboard() {
                       />
                     </div>
                   </div>
-                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ &gt; ngưỡng này, ESP32 sẽ tự động bật quạt (GPIO 33 · IN2) làm mát.</small>
+                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ &gt; ngưỡng này, hệ thống sẽ tự động bật quạt làm mát.</small>
                 </div>
 
                 <div className="threshold-form-group" style={{ marginTop: 12 }}>
@@ -1166,7 +1152,7 @@ function Dashboard() {
                       />
                     </div>
                   </div>
-                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, ESP32 sẽ tự động mở van tưới (GPIO 25 · IN1) cấp nước.</small>
+                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, hệ thống sẽ tự động mở van tưới cấp nước.</small>
                 </div>
 
                 <div className="threshold-form-group" style={{ marginTop: 14 }}>
@@ -2358,7 +2344,7 @@ function Devices() {
                       />
                     </div>
                   </div>
-                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ &gt; ngưỡng này, ESP32 sẽ tự động bật quạt (GPIO 33 · IN2) làm mát.</small>
+                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ &gt; ngưỡng này, hệ thống sẽ tự động bật quạt làm mát.</small>
                 </div>
 
                 <div className="threshold-form-group" style={{ marginTop: 12 }}>
@@ -2409,7 +2395,7 @@ function Devices() {
                       />
                     </div>
                   </div>
-                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, ESP32 sẽ tự động mở van tưới (GPIO 25 · IN1) cấp nước.</small>
+                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, hệ thống sẽ tự động mở van tưới cấp nước.</small>
                 </div>
 
                 <div className="threshold-form-group" style={{ marginTop: 14 }}>
