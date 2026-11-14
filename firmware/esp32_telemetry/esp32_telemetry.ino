@@ -83,11 +83,22 @@ const int WATER_VALUE = 1400;  // Nhúng vào cốc nước (100%)
 #define RELAY_FAN_PIN    33    // IN2: Quạt gió
 #define RELAY_LIGHT_PIN  32    // IN3: Đèn quang hợp
 
-// CẤU HÌNH MỨC KÍCH RELAY (Đã đảo sang Active HIGH để khớp chuẩn BẬT / TẮT trên Web):
-// Khi bật trên Web: ESP32 xuất HIGH -> Relay đóng (BẬT)
-// Khi tắt trên Web: ESP32 xuất LOW  -> Relay nhả (TẮT)
-#define RELAY_ON   HIGH
-#define RELAY_OFF  LOW
+// CẤU HÌNH MỨC KÍCH RELAY:
+// - Module Relay Active HIGH: Mức HIGH (3.3V) = BẬT, Mức LOW (0V) = TẮT
+// - Module Relay Active LOW : Mức LOW (0V) = BẬT, Mức HIGH (3.3V) = TẮT
+// Bạn có thể gõ "invert" vào Serial Monitor để đảo chiều bất cứ lúc nào!
+bool isRelayActiveLow = false; // Mặc định Active HIGH (đổi thành true nếu relay của bạn kích LOW)
+
+inline int getRelayLevel(bool state) {
+  if (isRelayActiveLow) {
+    return state ? LOW : HIGH;
+  } else {
+    return state ? HIGH : LOW;
+  }
+}
+
+#define RELAY_ON   (isRelayActiveLow ? LOW : HIGH)
+#define RELAY_OFF  (isRelayActiveLow ? HIGH : LOW)
 
 bool valveState = false;
 bool fanState   = false;
@@ -208,12 +219,77 @@ void flushOfflineRecords() {
   Serial.println(F("=> Đã gửi bù toàn bộ dữ liệu offline lên server thành công!\n"));
 }
 
-// ============================ 5. ĐIỀU KHIỂN RELAY ============================
+// ============================ 5. ĐIỀU KHIỂN & KIỂM TRA CHÂN RELAY ============
 void setRelay(int pin, bool state, const char* name) {
-  digitalWrite(pin, state ? RELAY_ON : RELAY_OFF);
-  Serial.print(F("[RELAY] "));
+  int level = getRelayLevel(state);
+  digitalWrite(pin, level);
+  int readBack = digitalRead(pin);
+
+  Serial.println(F("--------------------------------------------------------"));
+  Serial.print(F("[KIỂM TRA CHÂN] "));
   Serial.print(name);
-  Serial.println(state ? F(" -> BẬT (ON) [Đèn LED Relay SÁNG]") : F(" -> TẮT (OFF) [Đèn LED Relay TẮT]"));
+  Serial.print(F(" (GPIO "));
+  Serial.print(pin);
+  Serial.println(F("):"));
+  Serial.print(F("  -> Lệnh yêu cầu : "));
+  Serial.println(state ? F("BẬT (ON)") : F("TẮT (OFF)"));
+  Serial.print(F("  -> Xuất mức chân: "));
+  Serial.print(level == HIGH ? F("HIGH (3.3V)") : F("LOW (0V)"));
+  Serial.print(F(" [Chế độ: "));
+  Serial.print(isRelayActiveLow ? F("Active LOW]") : F("Active HIGH]"));
+  Serial.print(F(" | Đo thực tế: "));
+  Serial.println(readBack == HIGH ? F("HIGH (3.3V)") : F("LOW (0V)"));
+
+  if (readBack == level) {
+    Serial.print(F("  => KẾT QUẢ: Chân ESP32 hoạt động chuẩn! "));
+    if (state) {
+      Serial.println(F("(Relay phải KÊU TẠCH & đèn LED đỏ trên module Relay SÁNG)"));
+    } else {
+      Serial.println(F("(Relay phải KÊU TẠCH & đèn LED đỏ trên module Relay TẮT)"));
+    }
+  } else {
+    Serial.println(F("  => CẢNH BÁO: Đo lại chân không khớp mức xuất! Kiểm tra dây D32/D33/D25 có bị chập/đứt."));
+  }
+  Serial.println(F("--------------------------------------------------------"));
+}
+
+// Hàm chạy kiểm tra lần lượt từng Relay (Self-Test)
+void testRelayPins() {
+  Serial.println(F("\n========================================================"));
+  Serial.println(F(">>> BẮT ĐẦU QUY TRÌNH KIỂM TRA 3 KÊNH RELAY (PIN TEST) <<<"));
+  Serial.println(F("========================================================"));
+
+  int pins[] = { RELAY_VALVE_PIN, RELAY_FAN_PIN, RELAY_LIGHT_PIN };
+  const char* names[] = { "Van nước (IN1)", "Quạt gió (IN2)", "Đèn quang hợp (IN3)" };
+
+  for (int i = 0; i < 3; i++) {
+    int p = pins[i];
+    const char* n = names[i];
+
+    Serial.print(F("\n--- [BƯỚC 1/2] Test BẬT: "));
+    Serial.print(n);
+    Serial.print(F(" (GPIO "));
+    Serial.print(p);
+    Serial.println(F(") ---"));
+    setRelay(p, true, n);
+    Serial.println(F("=> Chờ 2 giây: Hãy quan sát đèn LED trên Relay và nghe tiếng 'tạch' đóng tiếp điểm..."));
+    delay(2000);
+
+    Serial.print(F("\n--- [BƯỚC 2/2] Test TẮT: "));
+    Serial.print(n);
+    Serial.print(F(" (GPIO "));
+    Serial.print(p);
+    Serial.println(F(") ---"));
+    setRelay(p, false, n);
+    Serial.println(F("=> Chờ 1 giây: Relay phải nhả 'tạch' và đèn LED trên Relay tắt..."));
+    delay(1000);
+  }
+
+  Serial.println(F("\n========================================================"));
+  Serial.println(F(">>> HOÀN TẤT KIỂM TRA PHẦN CỨNG RELAY! <<<"));
+  Serial.println(F("- Nếu đèn LED trên Relay bị NGƯỢC (sáng khi Tắt, tắt khi Bật): Gõ 'invert' để đổi!"));
+  Serial.println(F("- Nếu không nghe Relay kêu 'tạch': Kiểm tra nguồn DC+ (5V VIN) và DC- (GND) cấp cho Relay."));
+  Serial.println(F("========================================================\n"));
 }
 
 // ============================ 6. XỬ LÝ LỆNH TỪ SERVER ========================
@@ -406,6 +482,79 @@ void publishTelemetry() {
   }
 }
 
+// ============================ 9. XỬ LÝ LỆNH TEST TỪ SERIAL MONITOR ============
+void handleSerialCommands() {
+  if (Serial.available() > 0) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    String cmdUpper = cmd;
+    cmdUpper.toUpperCase();
+    if (cmdUpper.length() == 0) return;
+
+    Serial.print(F("\n[LỆNH SERIAL] Đã nhận: "));
+    Serial.println(cmd);
+
+    if (cmdUpper == "TEST") {
+      testRelayPins();
+    } else if (cmdUpper == "LIGHT ON") {
+      lightState = true;
+      lightOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3) [SERIAL]");
+    } else if (cmdUpper == "LIGHT OFF") {
+      lightState = false;
+      lightOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [SERIAL]");
+    } else if (cmdUpper == "FAN ON") {
+      fanState = true;
+      fanOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      setRelay(RELAY_FAN_PIN, true, "Quạt gió (IN2) [SERIAL]");
+    } else if (cmdUpper == "FAN OFF") {
+      fanState = false;
+      fanOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      setRelay(RELAY_FAN_PIN, false, "Quạt gió (IN2) [SERIAL]");
+    } else if (cmdUpper == "VALVE ON") {
+      valveState = true;
+      valveOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1) [SERIAL]");
+    } else if (cmdUpper == "VALVE OFF") {
+      valveState = false;
+      valveOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1) [SERIAL]");
+    } else if (cmdUpper == "INVERT") {
+      isRelayActiveLow = !isRelayActiveLow;
+      preferences.begin("greenhouse", false);
+      preferences.putBool("relay_active_low", isRelayActiveLow);
+      preferences.end();
+      Serial.print(F("[CẤU HÌNH RELAY] Đã đảo mức kích Relay sang: "));
+      Serial.println(isRelayActiveLow ? F("Active LOW (Mức LOW = BẬT, Mức HIGH = TẮT)") : F("Active HIGH (Mức HIGH = BẬT, Mức LOW = TẮT)"));
+      // Cập nhật lại trạng thái ra 3 chân
+      setRelay(RELAY_VALVE_PIN, valveState, "Van nước");
+      setRelay(RELAY_FAN_PIN, fanState, "Quạt gió");
+      setRelay(RELAY_LIGHT_PIN, lightState, "Đèn quang hợp");
+    } else if (cmdUpper == "STATUS") {
+      Serial.println(F("\n--- [TRẠNG THÁI PHẦN CỨNG TẤT CẢ CÁC CHÂN] ---"));
+      Serial.print(F("Chế độ kích Relay : "));
+      Serial.println(isRelayActiveLow ? F("Active LOW (LOW=BẬT)") : F("Active HIGH (HIGH=BẬT)"));
+      Serial.print(F("Chân D25 (Van IN1): Xuất ")); Serial.print(digitalRead(RELAY_VALVE_PIN) == HIGH ? F("HIGH (3.3V)") : F("LOW (0V)"));
+      Serial.print(F(" | Trạng thái: ")); Serial.println(valveState ? F("BẬT") : F("TẮT"));
+      Serial.print(F("Chân D33 (Quạt IN2): Xuất ")); Serial.print(digitalRead(RELAY_FAN_PIN) == HIGH ? F("HIGH (3.3V)") : F("LOW (0V)"));
+      Serial.print(F(" | Trạng thái: ")); Serial.println(fanState ? F("BẬT") : F("TẮT"));
+      Serial.print(F("Chân D32 (Đèn IN3): Xuất ")); Serial.print(digitalRead(RELAY_LIGHT_PIN) == HIGH ? F("HIGH (3.3V)") : F("LOW (0V)"));
+      Serial.print(F(" | Trạng thái: ")); Serial.println(lightState ? F("BẬT") : F("TẮT"));
+      Serial.print(F("Chế độ hệ thống   : ")); Serial.println(autoControlMode ? F("TỰ ĐỘNG (AUTO)") : F("THỦ CÔNG (MANUAL)"));
+      Serial.println(F("---------------------------------------------"));
+    } else {
+      Serial.println(F("[TRỢ GIÚP] Các lệnh có thể gõ vào Serial Monitor (115200 baud):"));
+      Serial.println(F("  - 'test'      : Tự động chạy thử lần lượt 3 Relay (nghe tiếng tạch)"));
+      Serial.println(F("  - 'light on'  / 'light off': Bật / Tắt Đèn (Chân D32)"));
+      Serial.println(F("  - 'fan on'    / 'fan off'  : Bật / Tắt Quạt (Chân D33)"));
+      Serial.println(F("  - 'valve on'  / 'valve off': Bật / Tắt Van (Chân D25)"));
+      Serial.println(F("  - 'invert'    : Đảo chiều mức kích Relay (Active LOW <-> HIGH)"));
+      Serial.println(F("  - 'status'    : Xem điện áp thực tế trên các chân"));
+    }
+  }
+}
+
 // ============================ 10. SETUP ======================================
 void setup() {
   Serial.begin(115200);
@@ -436,8 +585,9 @@ void setup() {
   dht.begin();
   pinMode(SOIL_PIN, INPUT);
 
-  // Đọc cấu hình MQTT đã lưu trong bộ nhớ Flash (NVS)
+  // Đọc cấu hình MQTT và Relay đã lưu trong bộ nhớ Flash (NVS)
   preferences.begin("greenhouse", false);
+  isRelayActiveLow = preferences.getBool("relay_active_low", false);
   bool forcePortal = preferences.getBool("force_portal", false);
   if (forcePortal) {
     preferences.putBool("force_portal", false);
@@ -560,6 +710,9 @@ void setup() {
 
 // ============================ 11. LOOP =======================================
 void loop() {
+  // 0. Luôn lắng nghe lệnh kiểm tra chân trực tiếp từ Serial Monitor (không phụ thuộc Wi-Fi)
+  handleSerialCommands();
+
   // 1. Kiểm tra nút BOOT: Chỉ reset khi người dùng NHẤN GIỮ LIÊN TỤC >= 3 GIÂY (chống nhiễu điện)
   if (digitalRead(TRIGGER_PIN) == LOW) {
     uint32_t pressStart = millis();
