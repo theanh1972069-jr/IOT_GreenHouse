@@ -644,15 +644,22 @@ function Dashboard() {
       setDevices(deviceData);
       if (deviceData.length) {
         const deviceId = encodeURIComponent(deviceData[0].deviceId);
-        const [telemetryData, devConfig, live] = await Promise.all([
+        const [telemetryData, devConfig, live, scheds] = await Promise.all([
           apiRequest(`/api/telemetry?deviceId=${deviceId}`).catch(() => []),
           apiRequest(`/api/devices/${deviceId}/configuration`).catch(() => null),
           apiRequest(`/api/devices/${deviceId}/live`).catch(() => null),
+          apiRequest(`/api/devices/${deviceId}/light-schedules`).catch(() => []),
         ]);
         setTelemetry(telemetryData);
         setConfiguration(devConfig);
         if (live) setLiveStatus(live);
         setTemperatureHigh(Number(devConfig?.temperatureHigh) || 35);
+        if (Array.isArray(scheds) && scheds.length > 0) {
+          const active = scheds.find((s) => s.enabled) || scheds[0];
+          setLightSchedule({ onTime: active.turnOnTime, offTime: active.turnOffTime, id: active.id, enabled: active.enabled });
+          setDraftLightOn(active.turnOnTime);
+          setDraftLightOff(active.turnOffTime);
+        }
       } else {
         setTelemetry([]);
       }
@@ -728,22 +735,23 @@ function Dashboard() {
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdTemp, setThresholdTemp] = useState(35.0);
   const [thresholdSoil, setThresholdSoil] = useState(30.0);
-  const [thresholdLightTemp, setThresholdLightTemp] = useState(20.0);
+  const [lightSchedule, setLightSchedule] = useState({ onTime: '19:00', offTime: '07:00', id: null, enabled: true });
   const [draftTemp, setDraftTemp] = useState(35.0);
   const [draftSoil, setDraftSoil] = useState(30.0);
-  const [draftLightTemp, setDraftLightTemp] = useState(20.0);
+  const [draftLightOn, setDraftLightOn] = useState('19:00');
+  const [draftLightOff, setDraftLightOff] = useState('07:00');
   const [savingThreshold, setSavingThreshold] = useState(false);
 
   useEffect(() => {
     if (liveStatus?.tempThreshold != null) setThresholdTemp(liveStatus.tempThreshold);
     if (liveStatus?.soilThreshold != null) setThresholdSoil(liveStatus.soilThreshold);
-    if (liveStatus?.lightTempThreshold != null) setThresholdLightTemp(liveStatus.lightTempThreshold);
-  }, [liveStatus?.tempThreshold, liveStatus?.soilThreshold, liveStatus?.lightTempThreshold]);
+  }, [liveStatus?.tempThreshold, liveStatus?.soilThreshold]);
 
   function openThresholdModal() {
     setDraftTemp(thresholdTemp);
     setDraftSoil(thresholdSoil);
-    setDraftLightTemp(thresholdLightTemp);
+    setDraftLightOn(lightSchedule.onTime || '19:00');
+    setDraftLightOff(lightSchedule.offTime || '07:00');
     setShowThresholdModal(true);
   }
 
@@ -757,7 +765,6 @@ function Dashboard() {
         body: JSON.stringify({
           temperatureHigh: parseFloat(draftTemp),
           soilMoistureLow: parseFloat(draftSoil),
-          lightTempLow: parseFloat(draftLightTemp),
           autoMode: liveStatus?.autoMode ?? true,
         }),
       });
@@ -765,11 +772,30 @@ function Dashboard() {
         setLiveStatus(updated);
         setThresholdTemp(parseFloat(draftTemp));
         setThresholdSoil(parseFloat(draftSoil));
-        setThresholdLightTemp(parseFloat(draftLightTemp));
       }
+
+      // Lưu lịch bật/tắt đèn chiếu sáng quang hợp lên server
+      if (draftLightOn && draftLightOff) {
+        const url = lightSchedule.id
+          ? `/api/devices/${encodeURIComponent(devId)}/light-schedules/${lightSchedule.id}`
+          : `/api/devices/${encodeURIComponent(devId)}/light-schedules`;
+        const method = lightSchedule.id ? 'PUT' : 'POST';
+        const res = await apiRequest(url, {
+          method,
+          body: JSON.stringify({
+            label: 'Lịch chiếu sáng quang hợp',
+            turnOnTime: draftLightOn,
+            turnOffTime: draftLightOff,
+            enabled: true,
+          }),
+        });
+        const savedId = res?.id || lightSchedule.id;
+        setLightSchedule({ onTime: draftLightOn, offTime: draftLightOff, id: savedId, enabled: true });
+      }
+
       setShowThresholdModal(false);
     } catch (err) {
-      console.error('Không thể lưu ngưỡng cấu hình:', err);
+      console.error('Không thể lưu cấu hình:', err);
     } finally {
       setSavingThreshold(false);
     }
@@ -949,14 +975,16 @@ function Dashboard() {
                 </div>
               </div>
 
-              <div className="threshold-rule-item">
+              <div className="threshold-rule-item" onClick={openThresholdModal} style={{ cursor: 'pointer' }} title="Nhấn để tùy chỉnh lịch bật/tắt đèn trên web">
                 <div className="threshold-device-info">
                   <span className="rule-device-icon tone-yellow"><Lightbulb size={14} /></span>
                   <span className="rule-device-name">Đèn quang hợp</span>
                 </div>
                 <div className="threshold-condition">
-                  <span className="rule-desc">Bật khi thấp hơn:</span>
-                  <span className="rule-badge rule-badge-warm">&lt; {thresholdLightTemp}°C</span>
+                  <span className="rule-desc">Lịch tự động:</span>
+                  <span className="rule-badge rule-badge-warm" style={{ cursor: 'pointer' }}>
+                    {lightSchedule.enabled !== false ? `${lightSchedule.onTime || '19:00'} - ${lightSchedule.offTime || '07:00'}` : 'Đã tắt lịch'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1141,55 +1169,72 @@ function Dashboard() {
                   <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, ESP32 sẽ tự động mở van tưới (GPIO 25 · IN1) cấp nước.</small>
                 </div>
 
-                <div className="threshold-form-group" style={{ marginTop: 12 }}>
+                <div className="threshold-form-group" style={{ marginTop: 14 }}>
                   <label>
-                    <span>Ngưỡng nhiệt độ bật đèn quang hợp:</span>
-                    <strong>&lt; {draftLightTemp}°C</strong>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Lightbulb size={15} style={{ color: '#d97706' }} /> Lịch bật/tắt đèn quang hợp tự động:
+                    </span>
+                    <strong style={{ color: '#b45309' }}>
+                      {draftLightOn || '19:00'} (Bật) ➔ {draftLightOff || '07:00'} (Tắt)
+                    </strong>
                   </label>
-                  <div className="threshold-stepper-row">
-                    <div className="threshold-stepper-box">
-                      <button
-                        type="button"
-                        className="stepper-btn stepper-btn-minus"
-                        onClick={() => setDraftLightTemp((prev) => Math.max(5, Number((prev - 0.5).toFixed(1))))}
-                        title="Giảm 0.5°C"
-                        aria-label="Giảm 0.5°C"
-                      >
-                        <Minus size={15} />
-                      </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
+                    <div>
+                      <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                        🌙 Giờ bật đèn (7h tối):
+                      </span>
                       <input
-                        type="number"
-                        className="threshold-val-input stepper-input"
-                        value={draftLightTemp}
-                        step="0.5"
-                        min="5"
-                        max="40"
-                        onChange={(e) => setDraftLightTemp(parseFloat(e.target.value) || 0)}
+                        type="time"
+                        className="threshold-val-input"
+                        style={{ width: '100%', height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 600 }}
+                        value={draftLightOn}
+                        onChange={(e) => setDraftLightOn(e.target.value)}
+                        required
                       />
-                      <span className="stepper-unit-badge">°C</span>
-                      <button
-                        type="button"
-                        className="stepper-btn stepper-btn-plus"
-                        onClick={() => setDraftLightTemp((prev) => Math.min(40, Number((prev + 0.5).toFixed(1))))}
-                        title="Tăng 0.5°C"
-                        aria-label="Tăng 0.5°C"
-                      >
-                        <Plus size={15} />
-                      </button>
                     </div>
-
-                    <div className="threshold-slider-flex">
+                    <div>
+                      <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                        ☀️ Giờ tắt đèn (7h sáng):
+                      </span>
                       <input
-                        type="range"
-                        min="5"
-                        max="40"
-                        step="0.5"
-                        value={draftLightTemp}
-                        onChange={(e) => setDraftLightTemp(parseFloat(e.target.value))}
+                        type="time"
+                        className="threshold-val-input"
+                        style={{ width: '100%', height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 600 }}
+                        value={draftLightOff}
+                        onChange={(e) => setDraftLightOff(e.target.value)}
+                        required
                       />
                     </div>
                   </div>
-                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ không khí &lt; ngưỡng này (trời lạnh/thiếu nhiệt), ESP32 sẽ tự động bật đèn sưởi quang hợp (GPIO 32 · IN3).</small>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '19:00' && draftLightOff === '07:00') ? '#fef3c7' : undefined }}
+                      onClick={() => { setDraftLightOn('19:00'); setDraftLightOff('07:00'); }}
+                    >
+                      🌙 19:00 - 07:00 (Mặc định: 7h tối bật, 7h sáng tắt)
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '18:00' && draftLightOff === '06:00') ? '#fef3c7' : undefined }}
+                      onClick={() => { setDraftLightOn('18:00'); setDraftLightOff('06:00'); }}
+                    >
+                      18:00 - 06:00
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '06:00' && draftLightOff === '18:00') ? '#fef3c7' : undefined }}
+                      onClick={() => { setDraftLightOn('06:00'); setDraftLightOff('18:00'); }}
+                    >
+                      ☀️ 06:00 - 18:00 (Ban ngày)
+                    </button>
+                  </div>
+                  <small style={{ color: '#7a8980', fontSize: 11, marginTop: 6, display: 'block' }}>
+                    Server tự động gửi lệnh MQTT bật đèn lúc <strong>{draftLightOn}</strong> và tắt lúc <strong>{draftLightOff}</strong> hàng ngày. Bạn có thể gạt công tắc thủ công bất kỳ lúc nào.
+                  </small>
                 </div>
               </div>
 
@@ -1389,24 +1434,32 @@ function Devices() {
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdTemp, setThresholdTemp] = useState(35.0);
   const [thresholdSoil, setThresholdSoil] = useState(30.0);
-  const [thresholdLightTemp, setThresholdLightTemp] = useState(20.0);
   const [draftTemp, setDraftTemp] = useState(35.0);
   const [draftSoil, setDraftSoil] = useState(30.0);
-  const [draftLightTemp, setDraftLightTemp] = useState(20.0);
+  const [draftLightOn, setDraftLightOn] = useState('19:00');
+  const [draftLightOff, setDraftLightOff] = useState('07:00');
   const [savingThreshold, setSavingThreshold] = useState(false);
 
   // ── Lịch bật/tắt đèn tự động ────────────────────────────────────────────
   const [lightSchedules, setLightSchedules] = useState([]);
   const [showSchedulePanel, setShowSchedulePanel] = useState(false);
-  const [scheduleForm, setScheduleForm] = useState({ label: '', turnOnTime: '06:00', turnOffTime: '18:00', enabled: true });
+  const [scheduleForm, setScheduleForm] = useState({ label: '', turnOnTime: '19:00', turnOffTime: '07:00', enabled: true });
   const [editingScheduleId, setEditingScheduleId] = useState(null);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [scheduleError, setScheduleError] = useState('');
 
+  const activeLightSchedule = lightSchedules.find((s) => s.enabled) || lightSchedules[0];
+
   async function loadLightSchedules(deviceId) {
     try {
       const data = await apiRequest(`/api/devices/${encodeURIComponent(deviceId)}/light-schedules`);
-      setLightSchedules(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setLightSchedules(list);
+      if (list.length > 0) {
+        const active = list.find((s) => s.enabled) || list[0];
+        setDraftLightOn(active.turnOnTime);
+        setDraftLightOff(active.turnOffTime);
+      }
     } catch { setLightSchedules([]); }
   }
 
@@ -1423,7 +1476,7 @@ function Devices() {
       const method = editingScheduleId ? 'PUT' : 'POST';
       await apiRequest(url, { method, body: JSON.stringify(scheduleForm) });
       await loadLightSchedules(devId);
-      setScheduleForm({ label: '', turnOnTime: '06:00', turnOffTime: '18:00', enabled: true });
+      setScheduleForm({ label: '', turnOnTime: '19:00', turnOffTime: '07:00', enabled: true });
       setEditingScheduleId(null);
     } catch (err) {
       setScheduleError(err.message || 'Không thể lưu lịch.');
@@ -1462,7 +1515,8 @@ function Devices() {
   function openThresholdModal() {
     setDraftTemp(thresholdTemp);
     setDraftSoil(thresholdSoil);
-    setDraftLightTemp(thresholdLightTemp);
+    setDraftLightOn(activeLightSchedule?.turnOnTime || '19:00');
+    setDraftLightOff(activeLightSchedule?.turnOffTime || '07:00');
     setShowThresholdModal(true);
   }
 
@@ -1629,7 +1683,6 @@ function Devices() {
         body: JSON.stringify({
           temperatureHigh: parseFloat(draftTemp),
           soilMoistureLow: parseFloat(draftSoil),
-          lightTempLow: parseFloat(draftLightTemp),
           autoMode: liveStatus?.autoMode ?? true,
         }),
       });
@@ -1637,11 +1690,30 @@ function Devices() {
         setLiveStatus(updated);
         setThresholdTemp(parseFloat(draftTemp));
         setThresholdSoil(parseFloat(draftSoil));
-        setThresholdLightTemp(parseFloat(draftLightTemp));
       }
+
+      // Lưu lịch bật/tắt đèn chiếu sáng quang hợp
+      if (draftLightOn && draftLightOff) {
+        const targetSched = lightSchedules.find((s) => s.enabled) || lightSchedules[0];
+        const url = targetSched
+          ? `/api/devices/${encodeURIComponent(devId)}/light-schedules/${targetSched.id}`
+          : `/api/devices/${encodeURIComponent(devId)}/light-schedules`;
+        const method = targetSched ? 'PUT' : 'POST';
+        await apiRequest(url, {
+          method,
+          body: JSON.stringify({
+            label: 'Lịch chiếu sáng quang hợp',
+            turnOnTime: draftLightOn,
+            turnOffTime: draftLightOff,
+            enabled: true,
+          }),
+        });
+        await loadLightSchedules(devId);
+      }
+
       setShowThresholdModal(false);
     } catch (err) {
-      setError(err.message || 'Không thể lưu ngưỡng cấu hình.');
+      setError(err.message || 'Không thể lưu cấu hình.');
     } finally {
       setSavingThreshold(false);
     }
@@ -1821,12 +1893,7 @@ function Devices() {
       iconTone: isLightOn ? 'dev-icon-green' : 'dev-icon-blue',
       rule: (
         <span className="dev-rule-text">
-          <Lightbulb size={13} /> {liveStatus?.autoMode ? `Tự động khi nhiệt < ${thresholdLightTemp}°C (IN3)` : 'Điều khiển thủ công (IN3)'}
-          {Boolean(liveStatus?.lightOverrideSeconds > 0) && (
-            <span className="manual-override-pill" title="Đang can thiệp thủ công (bỏ qua tự động 5 phút)" style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309' }}>
-              {liveStatus.lightOverrideSeconds}s
-            </span>
-          )}
+          <Lightbulb size={13} /> Lịch tự động: {activeLightSchedule ? `${activeLightSchedule.turnOnTime} - ${activeLightSchedule.turnOffTime}` : '19:00 - 07:00'} (hoặc gạt thủ công)
         </span>
       ),
     },
@@ -2345,55 +2412,72 @@ function Devices() {
                   <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, ESP32 sẽ tự động mở van tưới (GPIO 25 · IN1) cấp nước.</small>
                 </div>
 
-                <div className="threshold-form-group" style={{ marginTop: 12 }}>
+                <div className="threshold-form-group" style={{ marginTop: 14 }}>
                   <label>
-                    <span>Ngưỡng nhiệt độ bật đèn quang hợp:</span>
-                    <strong>&lt; {draftLightTemp}°C</strong>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Lightbulb size={15} style={{ color: '#d97706' }} /> Lịch bật/tắt đèn quang hợp tự động:
+                    </span>
+                    <strong style={{ color: '#b45309' }}>
+                      {draftLightOn || '19:00'} (Bật) ➔ {draftLightOff || '07:00'} (Tắt)
+                    </strong>
                   </label>
-                  <div className="threshold-stepper-row">
-                    <div className="threshold-stepper-box">
-                      <button
-                        type="button"
-                        className="stepper-btn stepper-btn-minus"
-                        onClick={() => setDraftLightTemp((prev) => Math.max(5, Number((prev - 0.5).toFixed(1))))}
-                        title="Giảm 0.5°C"
-                        aria-label="Giảm 0.5°C"
-                      >
-                        <Minus size={15} />
-                      </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
+                    <div>
+                      <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                        🌙 Giờ bật đèn (7h tối):
+                      </span>
                       <input
-                        type="number"
-                        className="threshold-val-input stepper-input"
-                        value={draftLightTemp}
-                        step="0.5"
-                        min="5"
-                        max="40"
-                        onChange={(e) => setDraftLightTemp(parseFloat(e.target.value) || 0)}
+                        type="time"
+                        className="threshold-val-input"
+                        style={{ width: '100%', height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 600 }}
+                        value={draftLightOn}
+                        onChange={(e) => setDraftLightOn(e.target.value)}
+                        required
                       />
-                      <span className="stepper-unit-badge">°C</span>
-                      <button
-                        type="button"
-                        className="stepper-btn stepper-btn-plus"
-                        onClick={() => setDraftLightTemp((prev) => Math.min(40, Number((prev + 0.5).toFixed(1))))}
-                        title="Tăng 0.5°C"
-                        aria-label="Tăng 0.5°C"
-                      >
-                        <Plus size={15} />
-                      </button>
                     </div>
-
-                    <div className="threshold-slider-flex">
+                    <div>
+                      <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                        ☀️ Giờ tắt đèn (7h sáng):
+                      </span>
                       <input
-                        type="range"
-                        min="5"
-                        max="40"
-                        step="0.5"
-                        value={draftLightTemp}
-                        onChange={(e) => setDraftLightTemp(parseFloat(e.target.value))}
+                        type="time"
+                        className="threshold-val-input"
+                        style={{ width: '100%', height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 600 }}
+                        value={draftLightOff}
+                        onChange={(e) => setDraftLightOff(e.target.value)}
+                        required
                       />
                     </div>
                   </div>
-                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ không khí &lt; ngưỡng này (trời lạnh/thiếu nhiệt), ESP32 sẽ tự động bật đèn sưởi quang hợp (GPIO 32 · IN3).</small>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '19:00' && draftLightOff === '07:00') ? '#fef3c7' : undefined }}
+                      onClick={() => { setDraftLightOn('19:00'); setDraftLightOff('07:00'); }}
+                    >
+                      🌙 19:00 - 07:00 (Mặc định: 7h tối bật, 7h sáng tắt)
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '18:00' && draftLightOff === '06:00') ? '#fef3c7' : undefined }}
+                      onClick={() => { setDraftLightOn('18:00'); setDraftLightOff('06:00'); }}
+                    >
+                      18:00 - 06:00
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '06:00' && draftLightOff === '18:00') ? '#fef3c7' : undefined }}
+                      onClick={() => { setDraftLightOn('06:00'); setDraftLightOff('18:00'); }}
+                    >
+                      ☀️ 06:00 - 18:00 (Ban ngày)
+                    </button>
+                  </div>
+                  <small style={{ color: '#7a8980', fontSize: 11, marginTop: 6, display: 'block' }}>
+                    Server tự động gửi lệnh MQTT bật đèn lúc <strong>{draftLightOn}</strong> và tắt lúc <strong>{draftLightOff}</strong> hàng ngày. Bạn có thể gạt công tắc thủ công bất kỳ lúc nào.
+                  </small>
                 </div>
               </div>
 

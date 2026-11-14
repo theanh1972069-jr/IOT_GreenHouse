@@ -100,5 +100,15 @@ public class AuthBootstrap implements ApplicationRunner {
                 updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
             """);
+
+        // Seed default schedule for each device: 19:00 (7h tối) bật, 07:00 (7h sáng) tắt
+        jdbcTemplate.execute("""
+            INSERT INTO light_schedules (device_id, label, turn_on_time, turn_off_time, enabled)
+            SELECT d.id, 'Lịch chiếu sáng quang hợp', '19:00'::TIME, '07:00'::TIME, TRUE
+            FROM devices d
+            WHERE NOT EXISTS (
+                SELECT 1 FROM light_schedules ls WHERE ls.device_id = d.id
+            )
+            """);
     }
 }

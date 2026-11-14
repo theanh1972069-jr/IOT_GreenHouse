@@ -353,27 +353,10 @@ public class DeviceLiveService {
             scheduleAutoRevert(deviceId, "fan", 5);
 
         } else if ("light".equalsIgnoreCase(actuatorId)) {
-            Double temp = status.getTemperature();
-            Double threshold = status.getLightTempThreshold();
-            double currentTemp = temp != null ? temp : 0.0;
-            double currentThresh = threshold != null ? threshold : 20.0;
-
-            String msg;
-            if (turnOn) {
-                if (currentTemp >= currentThresh) {
-                    msg = String.format("Thiết bị đang có nhiệt độ (%.1f°C) không ở ngưỡng bật đèn (< %.0f°C), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentTemp, currentThresh);
-                } else {
-                    msg = String.format("Thiết bị đã được bật đèn quang hợp thủ công (nhiệt độ hiện tại %.1f°C, ngưỡng < %.0f°C), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentTemp, currentThresh);
-                }
-            } else {
-                msg = String.format("Thiết bị đã được tắt đèn quang hợp thủ công (nhiệt độ hiện tại %.1f°C, ngưỡng < %.0f°C), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentTemp, currentThresh);
-            }
-
-            raiseManualOverrideAlert(deviceId, "TEMPERATURE", msg);
-            status.setLightOverrideUntil(ZonedDateTime.now().plusMinutes(5));
-            status.setLightOverrideSeconds(300L);
-            status.setLastAlertMessage(msg);
-            scheduleAutoRevert(deviceId, "light", 5);
+            // Đèn quang hợp điều khiển theo Lịch chiếu sáng (mặc định 19:00 - 07:00) và công tắc thủ công,
+            // không tự động ngắt/bật theo nhiệt độ.
+            status.setLightOverrideUntil(null);
+            status.setLightOverrideSeconds(0L);
         }
 
         updateActuatorState(status, actuatorId, turnOn);
@@ -436,18 +419,6 @@ public class DeviceLiveService {
                         } else if (temp <= (threshold - 5.0) && isActuatorOn(live, "fan")) {
                             log.info("Auto-reverting fan to OFF for device {}: temp={} <= thresholdOff", deviceId, temp);
                             controlActuatorInternal(deviceId, "fan", false);
-                        }
-                    }
-                } else if ("light".equalsIgnoreCase(actuatorId)) {
-                    Double temp = live.getTemperature();
-                    Double threshold = live.getLightTempThreshold();
-                    if (temp != null && threshold != null) {
-                        if (temp < threshold && !isActuatorOn(live, "light")) {
-                            log.info("Auto-reverting light to ON for device {}: temp={} < threshold={}", deviceId, temp, threshold);
-                            controlActuatorInternal(deviceId, "light", true);
-                        } else if (temp >= (threshold + 2.0) && isActuatorOn(live, "light")) {
-                            log.info("Auto-reverting light to OFF for device {}: temp={} >= thresholdOff", deviceId, temp);
-                            controlActuatorInternal(deviceId, "light", false);
                         }
                     }
                 }

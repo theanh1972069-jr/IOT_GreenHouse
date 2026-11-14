@@ -45,7 +45,6 @@ public class LightScheduleService {
                 log.info("[LightSchedule] Bật đèn thiết bị {} theo lịch \"{}\" lúc {}",
                         deviceId, schedule.getLabel(), onTime);
                 mqttPublisherService.publish(topic, "{\"light\":1}");
-                // Cập nhật trạng thái live (in-memory)
                 updateLightState(deviceId, true);
             } else if (now.equals(offTime)) {
                 log.info("[LightSchedule] Tắt đèn thiết bị {} theo lịch \"{}\" lúc {}",
@@ -53,6 +52,16 @@ public class LightScheduleService {
                 mqttPublisherService.publish(topic, "{\"light\":0}");
                 updateLightState(deviceId, false);
             }
+        }
+    }
+
+    public static boolean isTimeInWindow(LocalTime now, LocalTime onTime, LocalTime offTime) {
+        if (onTime == null || offTime == null || onTime.equals(offTime)) return false;
+        if (onTime.isBefore(offTime)) {
+            return !now.isBefore(onTime) && now.isBefore(offTime);
+        } else {
+            // Cross-midnight window: e.g. 19:00 -> 07:00
+            return !now.isBefore(onTime) || now.isBefore(offTime);
         }
     }
 

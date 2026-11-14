@@ -335,15 +335,15 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
 
   if (message.indexOf("\"light\":1") >= 0) {
     lightState = true;
-    lightOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
-    setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3) [THỦ CÔNG]");
-    Serial.println(F("[THỦ CÔNG] Bật đèn quang hợp. Tạm dừng tự động hóa đèn 5 phút. Cảm biến vẫn đo bình thường."));
+    lightOverrideUntilMs = 0;
+    setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3) [BẬT]");
+    Serial.println(F("[LỆNH] Bật đèn quang hợp (IN3)."));
     stateChanged = true;
   } else if (message.indexOf("\"light\":0") >= 0) {
     lightState = false;
-    lightOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
-    setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [THỦ CÔNG]");
-    Serial.println(F("[THỦ CÔNG] Tắt đèn quang hợp. Tạm dừng tự động hóa đèn 5 phút. Cảm biến vẫn đo bình thường."));
+    lightOverrideUntilMs = 0;
+    setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [TẮT]");
+    Serial.println(F("[LỆNH] Tắt đèn quang hợp (IN3)."));
     stateChanged = true;
   }
 
@@ -793,26 +793,8 @@ void loop() {
         Serial.println(F(" giây trước khi tự động kích hoạt lại."));
       }
 
-      // 3. Tự động đèn quang hợp (bật khi nhiệt độ < lightTempThreshold, bỏ qua nếu đang trong 5 phút can thiệp thủ công)
-      if (lightOverrideUntilMs != 0 && millis() >= lightOverrideUntilMs) {
-        lightOverrideUntilMs = 0; // Đã hết 5 phút can thiệp thủ công
-        Serial.println(F("[TỰ ĐỘNG] Hết 5 phút can thiệp thủ công của Đèn quang hợp. Trở lại chế độ tự động theo ngưỡng."));
-      }
-
-      if (lightOverrideUntilMs == 0) {
-        if (dhtValid && airTemp < lightTempThreshold && !lightState) {
-          lightState = true;
-          setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3) [TỰ ĐỘNG - Nhiệt độ thấp]");
-        } else if (dhtValid && airTemp >= lightTempThresholdOff && lightState) {
-          lightState = false;
-          setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [TỰ ĐỘNG - Đủ ấm]");
-        }
-      } else {
-        uint32_t remSec = (lightOverrideUntilMs > millis()) ? ((lightOverrideUntilMs - millis()) / 1000) : 0;
-        Serial.print(F("[KHÓA TỰ ĐỘNG] Đèn quang hợp đang được giữ thủ công, còn "));
-        Serial.print(remSec);
-        Serial.println(F(" giây trước khi tự động kích hoạt lại."));
-      }
+      // Đèn quang hợp (IN3) được điều khiển theo Lịch chiếu sáng (mặc định 19:00 - 07:00) từ Server
+      // hoặc bật/tắt thủ công qua Web, không tự động can thiệp theo nhiệt độ.
     }
 
     // In ra Serial Monitor
