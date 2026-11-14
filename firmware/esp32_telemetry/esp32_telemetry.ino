@@ -133,16 +133,16 @@ uint32_t fanOverrideUntilMs   = 0;
 uint32_t lightOverrideUntilMs = 0;
 
 // Chu kỳ đo và gửi Telemetry:
-// Mỗi 2 giây đo 1 lần. Nếu biến động lớn (nhiệt độ >= 0.5°C, độ ẩm KK >= 3%, độ ẩm đất >= 3%, hoặc đổi relay) -> gửi luôn!
+// Mỗi 2 giây đo 1 lần. Nếu biến động lớn (nhiệt độ >= 1.0°C, độ ẩm KK >= 5%, độ ẩm đất >= 5%, hoặc đổi relay) -> gửi luôn!
 // Nếu không thay đổi nhiều thì định kỳ 10 giây gửi 1 lần (Heartbeat).
 static const uint32_t MEASURE_INTERVAL_MS   = 2000;   // Mỗi 2 giây đo cảm biến 1 lần
 static const uint32_t HEARTBEAT_INTERVAL_MS = 10000;  // Nếu không đổi nhiều thì 10 giây gửi 1 lần
 static const uint32_t MQTT_RETRY_MS         = 5000;
 
 // Ngưỡng chênh lệch để kích hoạt gửi ngay tức thì
-static const float    DELTA_TEMP_THRESHOLD  = 0.5f;   // Chênh lệch nhiệt độ >= 0.5 °C -> gửi luôn
-static const float    DELTA_HUMI_THRESHOLD  = 3.0f;   // Chênh lệch độ ẩm KK >= 3.0 % -> gửi luôn
-static const int      DELTA_SOIL_THRESHOLD  = 3;      // Chênh lệch độ ẩm đất >= 3 % -> gửi luôn
+static const float    DELTA_TEMP_THRESHOLD  = 1.0f;   // Chênh lệch nhiệt độ >= 1.0 °C -> gửi luôn
+static const float    DELTA_HUMI_THRESHOLD  = 5.0f;   // Chênh lệch độ ẩm KK >= 5.0 % -> gửi luôn
+static const int      DELTA_SOIL_THRESHOLD  = 5;      // Chênh lệch độ ẩm đất >= 5 % -> gửi luôn
 
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
