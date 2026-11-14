@@ -87,7 +87,7 @@ const pageTitles = {
   '/my-profile': ['Hồ sơ của tôi', 'Thông tin tài khoản đang đăng nhập.'],
   '/invite-user': ['Tạo tài khoản', 'Cấp quyền truy cập cho thành viên trong hệ thống.'],
 };
-const refreshIntervalMs = 10000;
+const refreshIntervalMs = 5000;
 
 function getStoredUser() {
   return getStoredSession();

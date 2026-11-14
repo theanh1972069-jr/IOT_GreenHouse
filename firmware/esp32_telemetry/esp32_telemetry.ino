@@ -132,12 +132,22 @@ uint32_t valveOverrideUntilMs = 0;
 uint32_t fanOverrideUntilMs   = 0;
 uint32_t lightOverrideUntilMs = 0;
 
-static const uint32_t PUBLISH_INTERVAL_MS = 10000;  // Chu kỳ đo và gửi telemetry lên server: mỗi 10 giây (khi nào gửi mới đo)
-static const uint32_t MQTT_RETRY_MS       = 5000;
+// Chu kỳ đo và gửi Telemetry:
+// Mỗi 2 giây đo 1 lần. Nếu biến động lớn (nhiệt độ >= 0.5°C, độ ẩm KK >= 3%, độ ẩm đất >= 3%, hoặc đổi relay) -> gửi luôn!
+// Nếu không thay đổi nhiều thì định kỳ 10 giây gửi 1 lần (Heartbeat).
+static const uint32_t MEASURE_INTERVAL_MS   = 2000;   // Mỗi 2 giây đo cảm biến 1 lần
+static const uint32_t HEARTBEAT_INTERVAL_MS = 10000;  // Nếu không đổi nhiều thì 10 giây gửi 1 lần
+static const uint32_t MQTT_RETRY_MS         = 5000;
+
+// Ngưỡng chênh lệch để kích hoạt gửi ngay tức thì
+static const float    DELTA_TEMP_THRESHOLD  = 0.5f;   // Chênh lệch nhiệt độ >= 0.5 °C -> gửi luôn
+static const float    DELTA_HUMI_THRESHOLD  = 3.0f;   // Chênh lệch độ ẩm KK >= 3.0 % -> gửi luôn
+static const int      DELTA_SOIL_THRESHOLD  = 3;      // Chênh lệch độ ẩm đất >= 3 % -> gửi luôn
 
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 
+static uint32_t lastMeasureMs    = 0;
 static uint32_t lastPublishMs    = 0;
 static uint32_t lastMqttRetryMs  = 0;
 
@@ -145,6 +155,14 @@ float airTemp      = 0.0;
 float airHumidity  = 0.0;
 int   soilRaw      = 0;
 int   soilMoisture = 0;
+
+// Lưu trữ giá trị của lần gửi gần nhất để so sánh độ biến động
+static float lastSentTemp     = -999.0f;
+static float lastSentHumidity = -999.0f;
+static int   lastSentSoil     = -999;
+static bool  lastSentValve    = false;
+static bool  lastSentFan      = false;
+static bool  lastSentLight    = false;
 
 String topicTelemetry = "";
 String topicControl   = "";
@@ -186,6 +204,15 @@ void saveOfflineRecord() {
   } else {
     offlineTail = (offlineTail + 1) % MAX_OFFLINE_RECORDS; // Ghi đè bản ghi cũ nhất khi đầy
   }
+
+  // Cập nhật giá trị mốc đã lưu
+  lastSentTemp     = airTemp;
+  lastSentHumidity = airHumidity;
+  lastSentSoil     = soilMoisture;
+  lastSentValve    = valveState;
+  lastSentFan      = fanState;
+  lastSentLight    = lightState;
+  lastPublishMs    = millis();
 
   Serial.print(F("[OFFLINE] Mất mạng! Đã lưu trạng thái cảm biến & thiết bị vào RAM. Đang chờ gửi: "));
   Serial.print(offlineCount);
@@ -569,6 +596,15 @@ void publishTelemetry() {
   if (mqtt.publish(topicTelemetry.c_str(), jsonBuffer)) {
     Serial.print(F(">> [MQTT ĐÃ GỬI THÀNH CÔNG]: "));
     Serial.println(jsonBuffer);
+
+    // Cập nhật giá trị mốc đã gửi thành công
+    lastSentTemp     = airTemp;
+    lastSentHumidity = airHumidity;
+    lastSentSoil     = soilMoisture;
+    lastSentValve    = valveState;
+    lastSentFan      = fanState;
+    lastSentLight    = lightState;
+    lastPublishMs    = millis();
   } else {
     Serial.print(F(">> [LỖI GỬI MQTT] rc="));
     Serial.print(mqtt.state());
@@ -825,24 +861,42 @@ void loop() {
     }
   }
 
-  // 2. Quản lý chu kỳ đo & gửi Telemetry (hoặc lưu Offline khi mất mạng)
-  // ĐỒNG BỘ WEB & FIRMWARE: "KHI NÀO GỬI MỚI ĐO"
-  // Chỉ đo cảm biến và kiểm tra tự động hóa ngay trước khi gửi bản tin lên Server (hoặc lưu offline).
-  bool isOnline = (WiFi.status() == WL_CONNECTED) && mqtt.connected();
-  if (millis() - lastPublishMs >= PUBLISH_INTERVAL_MS) {
-    lastPublishMs = millis();
+  // 2. Chu kỳ đo mỗi 2 giây: kiểm tra biến động lớn -> gửi luôn; ổn định -> 10s gửi 1 lần
+  if (millis() - lastMeasureMs >= MEASURE_INTERVAL_MS) {
+    lastMeasureMs = millis();
 
-    // Bước 1: Tiến hành đo mới cảm biến và kiểm tra tự động kích Relay
+    // Bước 1: Tiến hành đo cảm biến định kỳ mỗi 2 giây và chạy kiểm tra tự động kích Relay
     measureSensorsAndAutoControl();
 
-    // Bước 2: Đóng gói và gửi lên Server / Web (hoặc lưu Offline nếu mất mạng)
-    if (!isOnline) {
-      // MẤT MẠNG: Tự động lưu các thông số cảm biến và trạng thái bật/tắt thiết bị vào RAM
-      saveOfflineRecord();
-    } else {
-      // CÓ MẠNG: Gửi bù các bản ghi đã lưu trong lúc mất mạng trước, sau đó gửi bản tin hiện tại
-      flushOfflineRecords();
-      publishTelemetry();
+    // Bước 2: Kiểm tra xem các giá trị có cách nhau quá lớn hoặc đổi trạng thái relay không
+    bool tempChanged  = (lastSentTemp < -900.0f) || (fabs(airTemp - lastSentTemp) >= DELTA_TEMP_THRESHOLD);
+    bool humiChanged  = (lastSentHumidity < -900.0f) || (fabs(airHumidity - lastSentHumidity) >= DELTA_HUMI_THRESHOLD);
+    bool soilChanged  = (lastSentSoil < -900) || (abs(soilMoisture - lastSentSoil) >= DELTA_SOIL_THRESHOLD);
+    bool relayChanged = (valveState != lastSentValve) || (fanState != lastSentFan) || (lightState != lastSentLight);
+
+    bool significantChange = tempChanged || humiChanged || soilChanged || relayChanged;
+    bool timeoutHeartbeat  = (millis() - lastPublishMs >= HEARTBEAT_INTERVAL_MS);
+
+    // Bước 3: Nếu biến động lớn HOẶC đã đủ 10 giây định kỳ -> gửi lên Server
+    if (significantChange || timeoutHeartbeat) {
+      if (significantChange && !timeoutHeartbeat) {
+        Serial.print(F("[GỬI TỨC THÌ] Phát hiện biến động lớn ("));
+        if (tempChanged) Serial.print(F(" NhiệtĐộ"));
+        if (humiChanged) Serial.print(F(" ĐộẨmKK"));
+        if (soilChanged) Serial.print(F(" ĐộẨmĐất"));
+        if (relayChanged) Serial.print(F(" Relay"));
+        Serial.println(F(" ) -> Gửi telemetry ngay lập tức!"));
+      } else {
+        Serial.println(F("[HEARTBEAT 10S] Thông số ổn định -> Gửi định kỳ duy trì kết nối"));
+      }
+
+      bool isOnline = (WiFi.status() == WL_CONNECTED) && mqtt.connected();
+      if (!isOnline) {
+        saveOfflineRecord();
+      } else {
+        flushOfflineRecords();
+        publishTelemetry();
+      }
     }
   }
 
