@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalTime;
 import java.util.List;
@@ -30,6 +31,7 @@ public class LightScheduleService {
      * So sánh giờ:phút hiện tại với turnOnTime và turnOffTime của từng lịch.
      */
     @Scheduled(cron = "0 * * * * *")
+    @Transactional
     public void evaluateSchedules() {
         LocalTime now = LocalTime.now().withSecond(0).withNano(0);
         List<LightSchedule> schedules = lightScheduleRepository.findByEnabledTrue();

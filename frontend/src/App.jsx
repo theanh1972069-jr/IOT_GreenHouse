@@ -696,40 +696,45 @@ function Dashboard() {
   const isDeviceOnline = Boolean(liveStatus?.online);
   const activeCount = isDeviceOnline ? actuators.filter((a) => a.state).length : 0;
 
+  const curTemp = liveStatus?.temperature ?? latest?.temperature ?? null;
+  const curHumi = liveStatus?.humidity ?? latest?.humidity ?? null;
+  const curSoil = liveStatus?.soilMoisture ?? latest?.soilMoisture ?? null;
+  const curLastSeen = liveStatus?.lastSeen || latest?.timestamp || null;
+
   // Cảm biến thời gian thực: chỉ hiển thị cảm biến khi có kết nối và có dữ liệu; mất kết nối thì biến mất
   const activeSensors = [];
-  if (isDeviceOnline && latest) {
-    if (latest.temperature != null) {
+  if (isDeviceOnline) {
+    if (curTemp != null) {
       activeSensors.push({
         id: 'temperature',
         name: 'Nhiệt độ',
-        value: `${Number(latest.temperature).toFixed(1)}°C`,
+        value: `${Number(curTemp).toFixed(1)}°C`,
         icon: Thermometer,
         tone: 'tone-coral',
       });
     }
-    if (latest.humidity != null) {
+    if (curHumi != null) {
       activeSensors.push({
         id: 'humidity',
         name: 'Độ ẩm không khí',
-        value: `${Number(latest.humidity).toFixed(0)}% RH`,
+        value: `${Number(curHumi).toFixed(0)}% RH`,
         icon: Droplets,
         tone: 'tone-blue',
       });
     }
-    if (latest.soilMoisture != null) {
+    if (curSoil != null) {
       activeSensors.push({
         id: 'soilMoisture',
         name: 'Độ ẩm đất',
-        value: `${Number(latest.soilMoisture).toFixed(0)}%`,
+        value: `${Number(curSoil).toFixed(0)}%`,
         icon: Sprout,
         tone: 'tone-green',
       });
     }
   }
 
-  const hasTempHumi = Boolean(isDeviceOnline && latest && (latest.temperature != null || latest.humidity != null));
-  const hasSoil = Boolean(isDeviceOnline && latest && latest.soilMoisture != null);
+  const hasTempHumi = Boolean(isDeviceOnline && (curTemp != null || curHumi != null));
+  const hasSoil = Boolean(isDeviceOnline && curSoil != null);
 
   const [busyActuator, setBusyActuator] = useState(null);
   const [showThresholdModal, setShowThresholdModal] = useState(false);
@@ -875,18 +880,18 @@ function Dashboard() {
             </div>
 
             <div className="sensor-showcase-box">
-              {isDeviceOnline && latest && (hasTempHumi || hasSoil) ? (
+              {isDeviceOnline && (hasTempHumi || hasSoil) ? (
                 <div className="sensor-reading-stack">
                   {hasTempHumi && (
                     <div className="sensor-reading-line">
                       <span className="sensor-glyph-icon"><Thermometer size={16} /></span>
                       <strong className="sensor-bold-val">
-                        {latest.temperature != null ? Number(latest.temperature).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) : '—'}°C
+                        {curTemp != null ? Number(curTemp).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) : '—'}°C
                       </strong>
                       <span className="sensor-dot-sep">•</span>
                       <span className="sensor-glyph-icon"><Droplets size={16} /></span>
                       <strong className="sensor-bold-val">
-                        {latest.humidity != null ? Number(latest.humidity).toLocaleString('vi-VN', { maximumFractionDigits: 0 }) : '—'}% RH
+                        {curHumi != null ? Number(curHumi).toLocaleString('vi-VN', { maximumFractionDigits: 0 }) : '—'}% RH
                       </strong>
                     </div>
                   )}
@@ -897,10 +902,10 @@ function Dashboard() {
                     <div className="sensor-reading-line">
                       <span className="sensor-glyph-icon"><Droplet size={16} /></span>
                       <strong className="sensor-bold-val">
-                        {latest.soilMoisture != null ? Number(latest.soilMoisture).toLocaleString('vi-VN', { maximumFractionDigits: 0 }) : '—'}%
+                        {curSoil != null ? Number(curSoil).toLocaleString('vi-VN', { maximumFractionDigits: 0 }) : '—'}%
                       </strong>
                       <span className="sensor-note-val">
-                        {Number(latest.soilMoisture) >= thresholdSoil ? '(Tối ưu)' : '(Cần tưới)'}
+                        {Number(curSoil) >= thresholdSoil ? '(Tối ưu)' : '(Cần tưới)'}
                       </span>
                     </div>
                   )}
@@ -908,15 +913,15 @@ function Dashboard() {
               ) : (
                 <div className="sensor-pill-empty">
                   <AlertCircle size={15} />
-                  <span>Không có cảm biến kết nối</span>
+                  <span>{isDeviceOnline ? 'Đang chờ bản tin từ ESP32...' : 'Không có cảm biến kết nối'}</span>
                 </div>
               )}
             </div>
           </div>
           <small style={{ marginTop: '10px', fontSize: '11px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '5px' }}>
             <Clock3 size={12} />
-            {isDeviceOnline && latest?.timestamp
-              ? `Cập nhật lần cuối: ${timeAgo(latest.timestamp)}`
+            {isDeviceOnline && curLastSeen
+              ? `Cập nhật lần cuối: ${timeAgo(curLastSeen)}`
               : isDeviceOnline
               ? 'Đang chờ bản tin từ ESP32...'
               : 'Node ESP32 đang ngoại tuyến'}
@@ -1742,8 +1747,13 @@ function Devices() {
   const STALE_AFTER_MS = 5 * 60 * 1000;
   const apiReachable = !error;
   const hasNodes = backendDevices.length > 0;
-  const latestTime = latest?.timestamp ? new Date(latest.timestamp).getTime() : NaN;
-  const telemetryFresh = Number.isFinite(latestTime) && Date.now() - latestTime <= STALE_AFTER_MS;
+  const lastSeenTime = liveStatus?.lastSeen || latest?.timestamp || null;
+  const latestTime = lastSeenTime ? new Date(lastSeenTime).getTime() : NaN;
+  const telemetryFresh = Boolean(liveStatus?.online) || (Number.isFinite(latestTime) && Date.now() - latestTime <= STALE_AFTER_MS);
+
+  const temperature = liveStatus?.temperature ?? latest?.temperature ?? null;
+  const humidity = liveStatus?.humidity ?? latest?.humidity ?? null;
+  const soil = liveStatus?.soilMoisture ?? latest?.soilMoisture ?? null;
 
   function sensorLink(hasField) {
     if (!apiReachable) return 'down';
@@ -1752,10 +1762,6 @@ function Devices() {
     if (!hasField) return 'nodata';
     return 'active';
   }
-
-  const temperature = latest?.temperature ?? null;
-  const humidity = latest?.humidity ?? null;
-  const soil = latest?.soilMoisture ?? null;
 
   // Cảm biến: chỉ giữ Nhiệt độ & Độ ẩm, Độ ẩm đất. BỎ HOÀN TOÀN cường độ ánh sáng
   const sensorItems = [
@@ -1781,7 +1787,7 @@ function Devices() {
       ),
       rule: (
         <span className="dev-rule-text">
-          <Clock3 size={13} /> {latest?.timestamp ? `Cập nhật lần cuối: ${timeAgo(latest.timestamp)}` : 'Chưa nhận dữ liệu'}
+          <Clock3 size={13} /> {lastSeenTime ? `Cập nhật lần cuối: ${timeAgo(lastSeenTime)}` : 'Chưa nhận dữ liệu'}
         </span>
       ),
     },
@@ -1805,7 +1811,7 @@ function Devices() {
       ),
       rule: (
         <span className="dev-rule-text">
-          <Clock3 size={13} /> {latest?.timestamp ? `Cập nhật lần cuối: ${timeAgo(latest.timestamp)}` : 'Chưa nhận dữ liệu'}
+          <Clock3 size={13} /> {lastSeenTime ? `Cập nhật lần cuối: ${timeAgo(lastSeenTime)}` : 'Chưa nhận dữ liệu'}
         </span>
       ),
     },
@@ -1915,7 +1921,7 @@ function Devices() {
     down: 'Mất kết nối',
     empty: 'Chưa kết nối',
     stale: 'Mất kết nối',
-    nodata: 'Chưa có dữ liệu',
+    nodata: online ? 'Đang cập nhật' : 'Chưa có dữ liệu',
   };
   const sensorLinkTones = {
     active: 'dev-status-active',
@@ -1925,11 +1931,11 @@ function Devices() {
     nodata: 'dev-status-off',
   };
   const sensorLinkHint = {
-    active: latest?.timestamp ? `Telemetry lúc ${new Date(latest.timestamp).toLocaleString('vi-VN')}` : '',
+    active: lastSeenTime ? `Telemetry lúc ${new Date(lastSeenTime).toLocaleString('vi-VN')}` : '',
     down: 'Không kết nối được backend',
     empty: 'Chưa có node nào đăng ký',
     stale: 'Không nhận được telemetry mới quá 5 phút',
-    nodata: 'Bản tin mới nhất thiếu chỉ số này',
+    nodata: online ? 'Đang chờ bản tin chỉ số này' : 'Bản tin mới nhất thiếu chỉ số này',
   };
 
   const filtered = allItems.filter((item) => {
@@ -1966,8 +1972,8 @@ function Devices() {
             <span className="dev-summary-icon dev-icon-blue"><Radio size={15} /></span>
           </div>
           <div className="dev-summary-main">
-            <strong>{activeSensorCount}</strong>
-            <span>{online && activeSensorCount > 0 ? 'đang hoạt động' : 'mất kết nối'}</span>
+            <strong>{online ? activeSensorCount : 0}</strong>
+            <span>{online ? (activeSensorCount > 0 ? 'đang hoạt động' : 'chờ bản tin') : 'mất kết nối'}</span>
           </div>
           <div className="dev-summary-sensor-box">
             {online && (hasTempHumi || hasSoil) ? (
@@ -2001,7 +2007,7 @@ function Devices() {
             ) : (
               <div className="sensor-pill-empty" style={{ padding: '6px 10px', fontSize: '11px' }}>
                 <AlertCircle size={13} />
-                <span>Không có cảm biến kết nối</span>
+                <span>{online ? 'Đang chờ bản tin cảm biến...' : 'Không có cảm biến kết nối'}</span>
               </div>
             )}
           </div>
@@ -2070,7 +2076,7 @@ function Devices() {
           </div>
           <label className="dev-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm kiếm thiết bị..." aria-label="Tìm kiếm thiết bị" /></label>
         </div>
-        <div className="dev-list-heading"><div><strong>Danh sách thiết bị</strong><span>{filtered.length} thiết bị</span></div><span className={`dev-system-status ${allSensorsActive ? '' : 'dev-system-warn'}`}><i />{!online ? 'Toàn bộ thiết bị & cảm biến mất kết nối (Ngoại tuyến)' : allSensorsActive ? 'Hệ thống hoạt động bình thường' : !apiReachable ? 'Mất kết nối backend' : !hasNodes ? 'Chưa có node cảm biến nào' : 'Có cảm biến mất kết nối'}</span></div>
+        <div className="dev-list-heading"><div><strong>Danh sách thiết bị</strong><span>{filtered.length} thiết bị</span></div><span className={`dev-system-status ${allSensorsActive ? '' : 'dev-system-warn'}`}><i />{!online ? 'Toàn bộ thiết bị & cảm biến mất kết nối (Ngoại tuyến)' : allSensorsActive ? 'Hệ thống hoạt động bình thường' : !apiReachable ? 'Mất kết nối backend' : !hasNodes ? 'Chưa có node cảm biến nào' : 'Đang cập nhật dữ liệu cảm biến'}</span></div>
         {loading ? <div className="table-state"><LoaderCircle className="spin" size={21} /> Đang tải thiết bị...</div> : !visibleItems.length ? <div className="table-state"><Cpu size={22} /><span>Chưa có thiết bị phù hợp.</span></div> : (
           <div className="table-scroll dev-table-scroll">
             <table className="dev-table">

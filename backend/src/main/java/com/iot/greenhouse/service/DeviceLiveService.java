@@ -10,6 +10,7 @@ import com.iot.greenhouse.model.DeviceLiveStatus.ActuatorLiveView;
 import com.iot.greenhouse.repository.AlertRepository;
 import com.iot.greenhouse.repository.DeviceConfigurationRepository;
 import com.iot.greenhouse.repository.DeviceRepository;
+import com.iot.greenhouse.repository.TelemetryRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +40,7 @@ public class DeviceLiveService {
 
     private final DeviceRepository deviceRepository;
     private final DeviceConfigurationRepository configurationRepository;
+    private final TelemetryRepository telemetryRepository;
     private final AlertRepository alertRepository;
     private final MqttPublisherService mqttPublisherService;
     private final AuditLogService auditLogService;
@@ -127,6 +129,17 @@ public class DeviceLiveService {
                     .actuators(new ArrayList<>(createDefaultActuators()))
                     .totalPowerW(0.0)
                     .build();
+
+            if (deviceOpt.isPresent()) {
+                List<Telemetry> past = telemetryRepository.findByDeviceIdOrderByTimestampDesc(deviceOpt.get().getId());
+                if (past != null && !past.isEmpty()) {
+                    Telemetry latestT = past.get(0);
+                    if (latestT.getTemperature() != null) newStatus.setTemperature(latestT.getTemperature().doubleValue());
+                    if (latestT.getHumidity() != null) newStatus.setHumidity(latestT.getHumidity().doubleValue());
+                    if (latestT.getSoilMoisture() != null) newStatus.setSoilMoisture(latestT.getSoilMoisture().intValue());
+                }
+            }
+
             newStatus.recalculateTotalPower();
             return newStatus;
         });
@@ -159,6 +172,16 @@ public class DeviceLiveService {
                 JsonNode root = objectMapper.readTree(body);
 
                 if (root != null && root.isObject()) {
+                    if (root.has("temperature") && root.get("temperature").isNumber()) {
+                        status.setTemperature(root.get("temperature").asDouble());
+                    }
+                    if (root.has("humidity") && root.get("humidity").isNumber()) {
+                        status.setHumidity(root.get("humidity").asDouble());
+                    }
+                    if (root.has("soilMoisture") && root.get("soilMoisture").isNumber()) {
+                        status.setSoilMoisture(root.get("soilMoisture").asInt());
+                    }
+
                     if (root.has("auto")) {
                         status.setAutoMode(root.get("auto").asInt(1) == 1);
                     }
