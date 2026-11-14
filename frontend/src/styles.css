@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   font-family: 'DM Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   color: #17241f;
   background: #f2f5f0;
@@ -2393,4 +2393,222 @@ input[type="checkbox"][role="switch"]:disabled {
   background: #273d31;
 }
 
-
+
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   LIGHT SCHEDULE PANEL — Lịch bật/tắt đèn quang hợp tự động
+   ═══════════════════════════════════════════════════════════════════ */
+
+.light-schedule-panel {
+  background: var(--surface, #fff);
+  border: 1.5px solid #d4f1be;
+  border-radius: 14px;
+  padding: 20px 22px 16px;
+  margin: 16px 0;
+  box-shadow: 0 2px 12px rgba(22, 163, 74, 0.07);
+}
+
+.light-schedule-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.light-schedule-form {
+  background: var(--surface-raised, #f8fdf8);
+  border: 1px solid #e2f5d9;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.light-schedule-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.ls-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-secondary, #52665a);
+  flex: 1;
+  min-width: 130px;
+}
+
+.ls-field span {
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ls-field input[type="text"],
+.ls-field input[type="time"] {
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  background: var(--surface, #fff);
+  color: var(--text-primary, #1e293b);
+  transition: border-color 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ls-field input[type="text"]:focus,
+.ls-field input[type="time"]:focus {
+  outline: none;
+  border-color: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.12);
+}
+
+.ls-field-toggle {
+  flex: 0 0 auto;
+  min-width: 70px;
+  align-items: center;
+}
+
+.ls-field-toggle input[type="checkbox"] {
+  width: 38px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.ls-actions {
+  flex: 0 0 auto;
+  flex-direction: row;
+  gap: 8px;
+  min-width: auto;
+}
+
+/* Danh sách lịch */
+.light-schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.light-schedule-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1.5px solid #e2f5d9;
+  background: var(--surface-raised, #f8fdf8);
+  transition: background 0.15s, border-color 0.15s;
+  gap: 12px;
+}
+
+.light-schedule-item.ls-disabled {
+  background: var(--surface, #f9f9f9);
+  border-color: #e5e7eb;
+  opacity: 0.75;
+}
+
+.ls-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.ls-info strong {
+  font-size: 13px;
+  color: var(--text-primary, #1e293b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.ls-time {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  font-variant-numeric: tabular-nums;
+}
+
+.ls-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.ls-badge-on {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.ls-badge-off {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.ls-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ls-row-actions input[type="checkbox"] {
+  width: 34px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.light-schedule-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px;
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
+}
+
+.light-schedule-note {
+  font-size: 11.5px;
+  color: #64748b;
+  margin: 8px 0 0;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border-radius: 8px;
+  border-left: 3px solid #16a34a;
+  line-height: 1.6;
+}
+
+@media (max-width: 600px) {
+  .light-schedule-form-row {
+    flex-direction: column;
+  }
+  .ls-field {
+    min-width: 100%;
+  }
+  .ls-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .ls-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}

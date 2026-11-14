@@ -33,6 +33,7 @@ public class AuthBootstrap implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        ensureLightSchedulesTable();
         Role adminRole = ensureRole("ADMIN", "System administrator");
         ensureRole("OPERATOR", "Greenhouse monitoring and operations");
         ensureRole("VIEWER", "Read-only greenhouse access");
@@ -77,5 +78,27 @@ public class AuthBootstrap implements ApplicationRunner {
                         .name(name)
                         .description(description)
                         .build()));
+    }
+
+    /**
+     * Tạo bảng light_schedules nếu chưa tồn tại (idempotent — dùng IF NOT EXISTS).
+     * Vì dự án dùng ddl-auto=none và không có Flyway/Liquibase, migration thủ công
+     * được thực hiện ở đây để bảng luôn tồn tại trước khi JPA truy cập.
+     */
+    private void ensureLightSchedulesTable() {
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS light_schedules (
+                id            BIGSERIAL PRIMARY KEY,
+                device_id     BIGINT      NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+                label         VARCHAR(100) NOT NULL DEFAULT 'Lịch chiếu sáng',
+                turn_on_time  TIME        NOT NULL,
+                turn_off_time TIME        NOT NULL,
+                enabled       BOOLEAN     NOT NULL DEFAULT TRUE,
+                created_by    BIGINT      REFERENCES users(id) ON DELETE SET NULL,
+                updated_by    BIGINT      REFERENCES users(id) ON DELETE SET NULL,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """);
     }
 }

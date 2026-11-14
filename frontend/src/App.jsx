@@ -1377,6 +1377,70 @@ function Devices() {
   const [draftLightTemp, setDraftLightTemp] = useState(20.0);
   const [savingThreshold, setSavingThreshold] = useState(false);
 
+  // ── Lịch bật/tắt đèn tự động ────────────────────────────────────────────
+  const [lightSchedules, setLightSchedules] = useState([]);
+  const [showSchedulePanel, setShowSchedulePanel] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({ label: '', turnOnTime: '06:00', turnOffTime: '18:00', enabled: true });
+  const [editingScheduleId, setEditingScheduleId] = useState(null);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleError, setScheduleError] = useState('');
+
+  async function loadLightSchedules(deviceId) {
+    try {
+      const data = await apiRequest(`/api/devices/${encodeURIComponent(deviceId)}/light-schedules`);
+      setLightSchedules(Array.isArray(data) ? data : []);
+    } catch { setLightSchedules([]); }
+  }
+
+  async function handleSaveSchedule(e) {
+    e.preventDefault();
+    setScheduleError('');
+    const devId = backendDevices[0]?.deviceId;
+    if (!devId) return;
+    setSavingSchedule(true);
+    try {
+      const url = editingScheduleId
+        ? `/api/devices/${encodeURIComponent(devId)}/light-schedules/${editingScheduleId}`
+        : `/api/devices/${encodeURIComponent(devId)}/light-schedules`;
+      const method = editingScheduleId ? 'PUT' : 'POST';
+      await apiRequest(url, { method, body: JSON.stringify(scheduleForm) });
+      await loadLightSchedules(devId);
+      setScheduleForm({ label: '', turnOnTime: '06:00', turnOffTime: '18:00', enabled: true });
+      setEditingScheduleId(null);
+    } catch (err) {
+      setScheduleError(err.message || 'Không thể lưu lịch.');
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  async function handleDeleteSchedule(id) {
+    const devId = backendDevices[0]?.deviceId;
+    if (!devId || !window.confirm('Xoá lịch chiếu sáng này?')) return;
+    try {
+      await apiRequest(`/api/devices/${encodeURIComponent(devId)}/light-schedules/${id}`, { method: 'DELETE' });
+      await loadLightSchedules(devId);
+    } catch (err) {
+      setScheduleError(err.message || 'Không thể xoá lịch.');
+    }
+  }
+
+  function handleEditSchedule(s) {
+    setScheduleForm({ label: s.label, turnOnTime: s.turnOnTime, turnOffTime: s.turnOffTime, enabled: s.enabled });
+    setEditingScheduleId(s.id);
+  }
+
+  async function handleToggleScheduleEnabled(s) {
+    const devId = backendDevices[0]?.deviceId;
+    if (!devId) return;
+    try {
+      await apiRequest(`/api/devices/${encodeURIComponent(devId)}/light-schedules/${s.id}`,
+        { method: 'PUT', body: JSON.stringify({ ...s, enabled: !s.enabled }) });
+      await loadLightSchedules(devId);
+    } catch { /* ignore */ }
+  }
+  // ────────────────────────────────────────────────────────────────────────
+
   function openThresholdModal() {
     setDraftTemp(thresholdTemp);
     setDraftSoil(thresholdSoil);
@@ -1443,6 +1507,13 @@ function Devices() {
       window.clearInterval(tickId);
     };
   }, []);
+
+  // Tải lịch đèn khi biết deviceId
+  useEffect(() => {
+    if (backendDevices.length) {
+      loadLightSchedules(backendDevices[0].deviceId);
+    }
+  }, [backendDevices.length > 0 ? backendDevices[0]?.deviceId : null]);
 
   async function handleToggle(actuatorKey, newState) {
     const devId = backendDevices[0]?.deviceId || 'esp32-01';
@@ -1850,6 +1921,15 @@ function Devices() {
           >
             <Settings2 size={14} /> Cài đặt ngưỡng
           </button>
+          <button
+            type="button"
+            className="btn-config-threshold"
+            onClick={() => setShowSchedulePanel((v) => !v)}
+            title="Cài đặt lịch bật/tắt đèn tự động theo giờ"
+            style={{ background: showSchedulePanel ? '#16a34a' : undefined, color: showSchedulePanel ? '#fff' : undefined }}
+          >
+            <Lightbulb size={14} /> Lịch chiếu sáng
+          </button>
         </div>
         <span style={{ fontSize: '12px', color: '#64748b' }}>
           {online ? '⚡ ESP32 đã kết nối và sẵn sàng nhận lệnh điều khiển' : '⚠️ ESP32 đang ngoại tuyến'}
@@ -1939,6 +2019,133 @@ function Devices() {
           </div>
         </div>
       </section>
+
+      {/* PANEL LỊCH BẬT/TẮT ĐÈN QUANG HỢP */}
+      {showSchedulePanel && (
+        <section className="light-schedule-panel" aria-label="Lịch chiếu sáng tự động">
+          <div className="light-schedule-header">
+            <div>
+              <Lightbulb size={18} style={{ color: '#f59e0b', verticalAlign: 'middle', marginRight: 8 }} />
+              <strong>Lịch bật/tắt đèn quang hợp tự động</strong>
+              <span style={{ fontSize: 12, color: '#64748b', marginLeft: 10 }}>
+                Server tự động gửi lệnh MQTT đúng giờ đã cài đặt mỗi ngày
+              </span>
+            </div>
+            <button type="button" className="icon-button" onClick={() => setShowSchedulePanel(false)} aria-label="Đóng">
+              <X size={16} />
+            </button>
+          </div>
+
+          {scheduleError && (
+            <div className="notice notice-error" style={{ marginBottom: 10 }}>
+              <AlertTriangle size={15} /><span>{scheduleError}</span>
+            </div>
+          )}
+
+          {/* Form thêm / sửa lịch */}
+          <form className="light-schedule-form" onSubmit={handleSaveSchedule}>
+            <div className="light-schedule-form-row">
+              <label className="ls-field">
+                <span>Nhãn lịch</span>
+                <input
+                  type="text"
+                  placeholder="VD: Sáng sớm"
+                  maxLength={100}
+                  value={scheduleForm.label}
+                  onChange={(e) => setScheduleForm((f) => ({ ...f, label: e.target.value }))}
+                />
+              </label>
+              <label className="ls-field">
+                <span><Sun size={13} style={{ color: '#f59e0b' }} /> Giờ bật đèn</span>
+                <input
+                  type="time"
+                  required
+                  value={scheduleForm.turnOnTime}
+                  onChange={(e) => setScheduleForm((f) => ({ ...f, turnOnTime: e.target.value }))}
+                />
+              </label>
+              <label className="ls-field">
+                <span><Moon size={13} style={{ color: '#6366f1' }} /> Giờ tắt đèn</span>
+                <input
+                  type="time"
+                  required
+                  value={scheduleForm.turnOffTime}
+                  onChange={(e) => setScheduleForm((f) => ({ ...f, turnOffTime: e.target.value }))}
+                />
+              </label>
+              <label className="ls-field ls-field-toggle">
+                <span>Kích hoạt</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={scheduleForm.enabled}
+                  onChange={(e) => setScheduleForm((f) => ({ ...f, enabled: e.target.checked }))}
+                />
+              </label>
+              <div className="ls-field ls-actions">
+                <button type="submit" className="button button-primary" disabled={savingSchedule}>
+                  {savingSchedule ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
+                  {editingScheduleId ? ' Cập nhật' : ' Thêm lịch'}
+                </button>
+                {editingScheduleId && (
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => { setEditingScheduleId(null); setScheduleForm({ label: '', turnOnTime: '06:00', turnOffTime: '18:00', enabled: true }); }}
+                  >
+                    Huỷ
+                  </button>
+                )}
+              </div>
+            </div>
+          </form>
+
+          {/* Danh sách lịch */}
+          {lightSchedules.length === 0 ? (
+            <div className="light-schedule-empty">
+              <Lightbulb size={22} style={{ opacity: 0.4 }} />
+              <span>Chưa có lịch chiếu sáng nào. Tạo lịch đầu tiên bên trên.</span>
+            </div>
+          ) : (
+            <div className="light-schedule-list">
+              {lightSchedules.map((s) => (
+                <div key={s.id} className={`light-schedule-item ${s.enabled ? 'ls-enabled' : 'ls-disabled'}`}>
+                  <div className="ls-info">
+                    <Lightbulb size={15} style={{ color: s.enabled ? '#f59e0b' : '#94a3b8' }} />
+                    <strong>{s.label || 'Lịch chiếu sáng'}</strong>
+                    <span className="ls-time">
+                      <Sun size={12} /> {s.turnOnTime} → <Moon size={12} /> {s.turnOffTime}
+                    </span>
+                    <span className={`ls-badge ${s.enabled ? 'ls-badge-on' : 'ls-badge-off'}`}>
+                      {s.enabled ? 'Đang bật' : 'Tắt'}
+                    </span>
+                  </div>
+                  <div className="ls-row-actions">
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      title={s.enabled ? 'Tắt lịch này' : 'Bật lịch này'}
+                      checked={s.enabled}
+                      onChange={() => handleToggleScheduleEnabled(s)}
+                    />
+                    <button type="button" className="icon-button" title="Sửa lịch" onClick={() => handleEditSchedule(s)}>
+                      <Pencil size={13} />
+                    </button>
+                    <button type="button" className="icon-button" title="Xoá lịch" onClick={() => handleDeleteSchedule(s.id)}
+                      style={{ color: '#ef4444' }}>
+                      <X size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="light-schedule-note">
+            💡 Lịch chiếu sáng được xử lý bởi server (Backend Spring Boot) — không phụ thuộc vào trình duyệt hay ESP32 đang online. Đèn sẽ được bật/tắt đúng giờ qua MQTT mỗi ngày.
+          </p>
+        </section>
+      )}
 
       {/* MODAL CÀI ĐẶT NGƯỠNG TRONG TRANG THIẾT BỊ */}
       {showThresholdModal && (
