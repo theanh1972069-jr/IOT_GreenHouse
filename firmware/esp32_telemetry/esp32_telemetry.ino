@@ -30,7 +30,7 @@
  *
  * 2. CẢM BIẾN:
  *    - DHT22 (Nhiệt độ & Độ ẩm không khí):
- *        OUT (Data) -> D27 (GPIO 27)
+ *        OUT (Data) -> D26 (GPIO 26)
  *        + (VCC)    -> Rail Đỏ (3.3V)
  *        - (GND)    -> Rail Xanh (GND)
  *    - HW-390 (Cảm biến độ ẩm đất điện dung):
@@ -60,7 +60,7 @@
 Preferences preferences;
 
 // Giá trị mặc định (sẽ được ghi đè khi bạn nhập trên Web Portal)
-char mqtt_server[40] = "192.168.1.120";
+char mqtt_server[40] = "192.168.1.226";
 char mqtt_port_str[6] = "1883";
 char device_id[32]    = "esp32-01";
 
@@ -68,7 +68,7 @@ char device_id[32]    = "esp32-01";
 bool shouldSaveConfig = false;
 
 // ============================ 3. ĐỊNH NGHĨA CHÂN & THIẾT BỊ ==================
-#define DHTPIN       27
+#define DHTPIN       26
 #define DHTTYPE      DHT22
 DHT dht(DHTPIN, DHTTYPE);
 
@@ -438,12 +438,19 @@ void setup() {
 
   // Đọc cấu hình MQTT đã lưu trong bộ nhớ Flash (NVS)
   preferences.begin("greenhouse", false);
-  String savedServer = preferences.getString("mqtt_server", "192.168.1.120");
-  // Tự động sửa lại nếu Flash đang lưu IP cũ .220
-  if (savedServer == "192.168.1.220" || savedServer.length() == 0) {
-    savedServer = "192.168.1.120";
-    preferences.putString("mqtt_server", "192.168.1.120");
-    Serial.println(F("[CẤU HÌNH] Đã tự động cập nhật IP MQTT Server thành: 192.168.1.120"));
+  bool forcePortal = preferences.getBool("force_portal", false);
+  if (forcePortal) {
+    preferences.putBool("force_portal", false);
+    Serial.println(F("\n[RESET] Phát hiện yêu cầu cài lại Wi-Fi! Xóa kết nối cũ và BẮT BUỘC mở Web Portal Setup..."));
+    WiFi.disconnect(true, true);
+  }
+
+  String savedServer = preferences.getString("mqtt_server", "192.168.1.226");
+  // Tự động sửa lại nếu Flash đang lưu IP cũ .120 hoặc .220
+  if (savedServer == "192.168.1.120" || savedServer == "192.168.1.220" || savedServer.length() == 0) {
+    savedServer = "192.168.1.226";
+    preferences.putString("mqtt_server", "192.168.1.226");
+    Serial.println(F("[CẤU HÌNH] Đã tự động cập nhật IP MQTT Server thành: 192.168.1.226"));
   }
   String savedPort   = preferences.getString("mqtt_port", "1883");
   String savedDevId  = preferences.getString("device_id", "esp32-01");
@@ -474,7 +481,8 @@ void setup() {
   }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
 
   // 1. Thử kết nối trực tiếp vào Wi-Fi đã lưu trong Flash (tránh bị kẹt trong AP captive portal)
-  if (WiFi.SSID().length() > 0) {
+  // Chỉ thử kết nối nếu KHÔNG có cờ ép buộc mở Portal (forcePortal == false)
+  if (!forcePortal && WiFi.SSID().length() > 0) {
     Serial.print(F("\n[KẾT NỐI MẠNG] Tìm thấy Wi-Fi đã lưu: "));
     Serial.println(WiFi.SSID());
     Serial.print(F("Đang kết nối..."));
@@ -488,12 +496,12 @@ void setup() {
     Serial.println();
   }
 
-  // 2. Nếu chưa kết nối được (lần đầu dùng hoặc đổi router) -> Mở Web Captive Portal
-  if (WiFi.status() != WL_CONNECTED) {
+  // 2. Nếu chưa kết nối được hoặc có yêu cầu Reset -> Mở Web Captive Portal
+  if (forcePortal || WiFi.status() != WL_CONNECTED) {
     WiFiManager wm;
     wm.setSaveConfigCallback(saveConfigCallback);
-    wm.setConfigPortalTimeout(90); // Chờ tối đa 90 giây trong trang web setup
-    wm.setConnectTimeout(25);
+    wm.setConfigPortalTimeout(180); // Chờ 180 giây (3 phút) để bạn kịp kết nối cấu hình
+    wm.setConnectTimeout(30);
 
     WiFiManagerParameter custom_mqtt_server("server", "IP Server Máy Tính (MQTT)", mqtt_server, 40);
     WiFiManagerParameter custom_mqtt_port("port", "Cổng MQTT (mặc định 1883)", mqtt_port_str, 6);
@@ -504,9 +512,16 @@ void setup() {
     wm.addParameter(&custom_device_id);
 
     Serial.println(F("\n[KẾT NỐI MẠNG] Đang mở Web Portal: 'GreenHouse_ESP32_Setup' (Mật khẩu: 12345678)"));
-    Serial.println(F("=> Hãy kết nối vào đó và mở trình duyệt gõ: 192.168.4.1 để cấu hình!"));
+    Serial.println(F("=> Hãy lấy điện thoại/laptop kết nối vào Wi-Fi: 'GreenHouse_ESP32_Setup'"));
+    Serial.println(F("=> Sau đó mở trình duyệt gõ: 192.168.4.1 để cài đặt Wi-Fi và Server!"));
 
-    bool res = wm.autoConnect("GreenHouse_ESP32_Setup", "12345678");
+    bool res = false;
+    if (forcePortal) {
+      // Bắt buộc mở thẳng trang cấu hình AP
+      res = wm.startConfigPortal("GreenHouse_ESP32_Setup", "12345678");
+    } else {
+      res = wm.autoConnect("GreenHouse_ESP32_Setup", "12345678");
+    }
 
     if (!res) {
       Serial.println(F("=> Hết thời gian chờ Web Portal, tiếp tục thử kết nối lại Wi-Fi..."));
@@ -552,9 +567,11 @@ void loop() {
       delay(50);
       if (millis() - pressStart >= 3000) {
         Serial.println(F("\n[RESET] Đã giữ nút BOOT đủ 3 giây! Xóa cấu hình Wi-Fi và phát lại Web Portal..."));
-        WiFiManager wmReset;
-        wmReset.resetSettings();
-        delay(500);
+        preferences.begin("greenhouse", false);
+        preferences.putBool("force_portal", true);
+        preferences.end();
+        WiFi.disconnect(true, true);
+        delay(600);
         ESP.restart();
       }
     }
@@ -654,7 +671,7 @@ void loop() {
       Serial.print(airHumidity, 1);
       Serial.println(F(" %"));
     } else {
-      Serial.println(F("[DHT22]  LỖI: Chưa đọc được dữ liệu (NaN)! Kiểm tra dây D27 & Nguồn 3.3V"));
+      Serial.println(F("[DHT22]  LỖI: Chưa đọc được dữ liệu (NaN)! Kiểm tra dây D26 & Nguồn 3.3V"));
     }
 
     Serial.print(F("[HW-390] Raw ADC: "));

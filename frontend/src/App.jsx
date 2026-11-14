@@ -1652,7 +1652,7 @@ function Devices() {
   function sensorLink(hasField) {
     if (!apiReachable) return 'down';
     if (!hasNodes) return 'empty';
-    if (!telemetryFresh) return 'stale';
+    if (!Boolean(liveStatus?.online)) return 'stale';
     if (!hasField) return 'nodata';
     return 'active';
   }
@@ -1715,7 +1715,8 @@ function Devices() {
     },
   ];
 
-  const online = apiReachable && hasNodes && telemetryFresh;
+  // Đồng bộ trạng thái trực tuyến theo thời gian thực với backend liveStatus (khớp 100% với Dashboard)
+  const online = Boolean(liveStatus?.online);
 
   const actuatorItems = [
     {

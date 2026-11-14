@@ -26,7 +26,7 @@ Frontend React / Vite (Port 5173 - Web Dashboard)
     JDBC URL: jdbc:postgresql://ep-polished-shape-azdm3vs2-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
 
 - MQTT Broker (Mosquitto):
-    Host LAN: 192.168.1.120 | Port: 1883 (Lắng nghe 0.0.0.0, cho phép anonymous)
+    Host LAN: 192.168.1.226 | Port: 1883 (Lắng nghe 0.0.0.0, cho phép anonymous)
     Topic Telemetry: greenhouse/esp32-01/telemetry
     Topic Điều khiển: greenhouse/esp32-01/control
 
@@ -98,7 +98,7 @@ khẩu và email đã đặt trong BOOTSTRAP_ADMIN_PASSWORD / BOOTSTRAP_ADMIN_EM
        3V3 ESP32      -> Rail Đỏ (Breadboard 3.3V)
        DC- Relay      -> Rail Xanh (GND chung)
    - Cảm biến:
-       DHT22 : OUT -> D27  |  + -> Rail Đỏ (3.3V)  |  - -> Rail Xanh (GND)
+       DHT22 : OUT -> D26  |  + -> Rail Đỏ (3.3V)  |  - -> Rail Xanh (GND)
        HW-390: AOUT -> D35 |  VCC -> Rail Đỏ (3.3V)|  GND -> Rail Xanh (GND)
    - Relay 4 kênh (Active LOW):
        D25 -> IN1 (Van nước)
