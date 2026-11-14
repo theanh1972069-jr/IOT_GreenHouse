@@ -132,14 +132,12 @@ uint32_t valveOverrideUntilMs = 0;
 uint32_t fanOverrideUntilMs   = 0;
 uint32_t lightOverrideUntilMs = 0;
 
-static const uint32_t READ_INTERVAL_MS    = 2000;   // Đọc cảm biến mỗi 2 giây
-static const uint32_t PUBLISH_INTERVAL_MS = 10000;  // Gửi lên server mỗi 10 giây
+static const uint32_t PUBLISH_INTERVAL_MS = 10000;  // Chu kỳ đo và gửi telemetry lên server: mỗi 10 giây (khi nào gửi mới đo)
 static const uint32_t MQTT_RETRY_MS       = 5000;
 
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 
-static uint32_t lastReadMs       = 0;
 static uint32_t lastPublishMs    = 0;
 static uint32_t lastMqttRetryMs  = 0;
 
@@ -152,6 +150,7 @@ String topicTelemetry = "";
 String topicControl   = "";
 
 // Khai báo trước các hàm
+void measureSensorsAndAutoControl();
 void publishTelemetry();
 void saveOfflineRecord();
 void flushOfflineRecords();
@@ -432,6 +431,8 @@ void connectMqtt() {
     // Gửi bù toàn bộ bản ghi cảm biến & thiết bị đã lưu trong lúc mất mạng
     flushOfflineRecords();
 
+    // Đo cảm biến ngay khi vừa kết nối thành công để có số liệu tươi gửi lên server
+    measureSensorsAndAutoControl();
     // Bắn ngay 1 bản tin telemetry lên server để web cập nhật tức thì trạng thái online & công suất
     publishTelemetry();
   } else {
@@ -440,7 +441,101 @@ void connectMqtt() {
   }
 }
 
-// ============================ 9. GỬI DỮ LIỆU TELEMETRY =======================
+// ============================ 9. ĐỌC CẢM BIẾN & TỰ ĐỘNG HÓA KHI GỬI ==========
+// KHI NÀO GỬI MỚI ĐO: Hàm này được gọi ngay trước khi gửi Telemetry (hoặc lưu Offline)
+void measureSensorsAndAutoControl() {
+  // 1. Đọc DHT22
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  bool dhtValid = !isnan(h) && !isnan(t);
+  if (dhtValid) {
+    airHumidity = h;
+    airTemp     = t;
+  }
+
+  // 2. Đọc độ ẩm đất HW-390 (D35)
+  soilRaw = analogRead(SOIL_PIN);
+  float soilVoltage = soilRaw * (3.3 / 4095.0);
+  soilMoisture = map(soilRaw, AIR_VALUE, WATER_VALUE, 0, 100);
+  soilMoisture = constrain(soilMoisture, 0, 100);
+
+  // 3. Tự động kích Relay theo ngưỡng (chỉ can thiệp khi KHÔNG trong thời gian override thủ công 5 phút)
+  if (autoControlMode) {
+    // Tự động van nước (bỏ qua nếu đang trong 5 phút can thiệp thủ công)
+    if (valveOverrideUntilMs != 0 && millis() >= valveOverrideUntilMs) {
+      valveOverrideUntilMs = 0; // Đã hết 5 phút can thiệp thủ công
+      Serial.println(F("[TỰ ĐỘNG] Hết 5 phút can thiệp thủ công của Van nước. Trở lại chế độ tự động theo ngưỡng."));
+    }
+
+    if (valveOverrideUntilMs == 0) {
+      if (soilMoisture < soilThreshold && !valveState) {
+        valveState = true;
+        setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1) [TỰ ĐỘNG - Đất khô]");
+      } else if (soilMoisture >= soilThresholdOff && valveState) {
+        valveState = false;
+        setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1) [TỰ ĐỘNG - Đủ ẩm]");
+      }
+    } else {
+      uint32_t remSec = (valveOverrideUntilMs > millis()) ? ((valveOverrideUntilMs - millis()) / 1000) : 0;
+      Serial.print(F("[KHÓA TỰ ĐỘNG] Van nước đang được giữ thủ công, còn "));
+      Serial.print(remSec);
+      Serial.println(F(" giây trước khi tự động kích hoạt lại."));
+    }
+
+    // Tự động quạt làm mát (bỏ qua nếu đang trong 5 phút can thiệp thủ công)
+    if (fanOverrideUntilMs != 0 && millis() >= fanOverrideUntilMs) {
+      fanOverrideUntilMs = 0; // Đã hết 5 phút can thiệp thủ công
+      Serial.println(F("[TỰ ĐỘNG] Hết 5 phút can thiệp thủ công của Quạt gió. Trở lại chế độ tự động theo ngưỡng."));
+    }
+
+    if (fanOverrideUntilMs == 0) {
+      if (dhtValid && airTemp > tempThreshold && !fanState) {
+        fanState = true;
+        setRelay(RELAY_FAN_PIN, true, "Quạt làm mát (IN2) [TỰ ĐỘNG - Quá nhiệt]");
+      } else if (dhtValid && airTemp <= tempThresholdOff && fanState) {
+        fanState = false;
+        setRelay(RELAY_FAN_PIN, false, "Quạt làm mát (IN2) [TỰ ĐỘNG - Mát]");
+      }
+    } else {
+      uint32_t remSec = (fanOverrideUntilMs > millis()) ? ((fanOverrideUntilMs - millis()) / 1000) : 0;
+      Serial.print(F("[KHÓA TỰ ĐỘNG] Quạt gió đang được giữ thủ công, còn "));
+      Serial.print(remSec);
+      Serial.println(F(" giây trước khi tự động kích hoạt lại."));
+    }
+
+    // Đèn quang hợp (IN3) được điều khiển theo Lịch chiếu sáng (mặc định 19:00 - 07:00) từ Server
+    // hoặc bật/tắt thủ công qua Web, không tự động can thiệp theo nhiệt độ.
+  }
+
+  // 4. In ra Serial Monitor đồng bộ cùng nhịp gửi
+  Serial.println(F("--------------------------------------------------------"));
+  if (dhtValid) {
+    Serial.print(F("[DHT22]  Nhiệt độ: "));
+    Serial.print(airTemp, 1);
+    Serial.print(F(" °C  |  Độ ẩm KK: "));
+    Serial.print(airHumidity, 1);
+    Serial.println(F(" %"));
+  } else {
+    Serial.println(F("[DHT22]  LỖI: Chưa đọc được dữ liệu (NaN)! Kiểm tra dây D26 & Nguồn 3.3V"));
+  }
+
+  Serial.print(F("[HW-390] Raw ADC: "));
+  Serial.print(soilRaw);
+  Serial.print(F(" ("));
+  Serial.print(soilVoltage, 2);
+  Serial.print(F("V)  |  Độ ẩm đất: "));
+  Serial.print(soilMoisture);
+  Serial.println(F(" %"));
+
+  Serial.print(F("[RELAY]  Van(IN1): "));
+  Serial.print(valveState ? F("BẬT") : F("TẮT"));
+  Serial.print(F(" | Quạt(IN2): "));
+  Serial.print(fanState ? F("BẬT") : F("TẮT"));
+  Serial.print(F(" | Đèn(IN3): "));
+  Serial.println(lightState ? F("BẬT") : F("TẮT"));
+}
+
+// ============================ 10. GỬI DỮ LIỆU TELEMETRY =======================
 void publishTelemetry() {
   mqtt.setBufferSize(1024);
   char jsonBuffer[1024];
@@ -730,106 +825,17 @@ void loop() {
     }
   }
 
-  // 2. Đọc cảm biến định kỳ mỗi 2 giây
-  if (millis() - lastReadMs >= READ_INTERVAL_MS) {
-    lastReadMs = millis();
-
-    // Đọc DHT22
-    float h = dht.readHumidity();
-    float t = dht.readTemperature();
-    bool dhtValid = !isnan(h) && !isnan(t);
-    if (dhtValid) {
-      airHumidity = h;
-      airTemp     = t;
-    }
-
-    // Đọc độ ẩm đất HW-390 (D35)
-    soilRaw = analogRead(SOIL_PIN);
-    float soilVoltage = soilRaw * (3.3 / 4095.0);
-    soilMoisture = map(soilRaw, AIR_VALUE, WATER_VALUE, 0, 100);
-    soilMoisture = constrain(soilMoisture, 0, 100);
-
-    // Tự động kích Relay theo ngưỡng (chỉ can thiệp khi KHÔNG trong thời gian override thủ công 5 phút)
-    if (autoControlMode) {
-      // 1. Tự động van nước (bỏ qua nếu đang trong 5 phút can thiệp thủ công)
-      if (valveOverrideUntilMs != 0 && millis() >= valveOverrideUntilMs) {
-        valveOverrideUntilMs = 0; // Đã hết 5 phút can thiệp thủ công
-        Serial.println(F("[TỰ ĐỘNG] Hết 5 phút can thiệp thủ công của Van nước. Trở lại chế độ tự động theo ngưỡng."));
-      }
-
-      if (valveOverrideUntilMs == 0) {
-        if (soilMoisture < soilThreshold && !valveState) {
-          valveState = true;
-          setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1) [TỰ ĐỘNG - Đất khô]");
-        } else if (soilMoisture >= soilThresholdOff && valveState) {
-          valveState = false;
-          setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1) [TỰ ĐỘNG - Đủ ẩm]");
-        }
-      } else {
-        uint32_t remSec = (valveOverrideUntilMs > millis()) ? ((valveOverrideUntilMs - millis()) / 1000) : 0;
-        Serial.print(F("[KHÓA TỰ ĐỘNG] Van nước đang được giữ thủ công, còn "));
-        Serial.print(remSec);
-        Serial.println(F(" giây trước khi tự động kích hoạt lại."));
-      }
-
-      // 2. Tự động quạt làm mát (bỏ qua nếu đang trong 5 phút can thiệp thủ công)
-      if (fanOverrideUntilMs != 0 && millis() >= fanOverrideUntilMs) {
-        fanOverrideUntilMs = 0; // Đã hết 5 phút can thiệp thủ công
-        Serial.println(F("[TỰ ĐỘNG] Hết 5 phút can thiệp thủ công của Quạt gió. Trở lại chế độ tự động theo ngưỡng."));
-      }
-
-      if (fanOverrideUntilMs == 0) {
-        if (dhtValid && airTemp > tempThreshold && !fanState) {
-          fanState = true;
-          setRelay(RELAY_FAN_PIN, true, "Quạt làm mát (IN2) [TỰ ĐỘNG - Quá nhiệt]");
-        } else if (dhtValid && airTemp <= tempThresholdOff && fanState) {
-          fanState = false;
-          setRelay(RELAY_FAN_PIN, false, "Quạt làm mát (IN2) [TỰ ĐỘNG - Mát]");
-        }
-      } else {
-        uint32_t remSec = (fanOverrideUntilMs > millis()) ? ((fanOverrideUntilMs - millis()) / 1000) : 0;
-        Serial.print(F("[KHÓA TỰ ĐỘNG] Quạt gió đang được giữ thủ công, còn "));
-        Serial.print(remSec);
-        Serial.println(F(" giây trước khi tự động kích hoạt lại."));
-      }
-
-      // Đèn quang hợp (IN3) được điều khiển theo Lịch chiếu sáng (mặc định 19:00 - 07:00) từ Server
-      // hoặc bật/tắt thủ công qua Web, không tự động can thiệp theo nhiệt độ.
-    }
-
-    // In ra Serial Monitor
-    Serial.println(F("--------------------------------------------------------"));
-    if (dhtValid) {
-      Serial.print(F("[DHT22]  Nhiệt độ: "));
-      Serial.print(airTemp, 1);
-      Serial.print(F(" °C  |  Độ ẩm KK: "));
-      Serial.print(airHumidity, 1);
-      Serial.println(F(" %"));
-    } else {
-      Serial.println(F("[DHT22]  LỖI: Chưa đọc được dữ liệu (NaN)! Kiểm tra dây D26 & Nguồn 3.3V"));
-    }
-
-    Serial.print(F("[HW-390] Raw ADC: "));
-    Serial.print(soilRaw);
-    Serial.print(F(" ("));
-    Serial.print(soilVoltage, 2);
-    Serial.print(F("V)  |  Độ ẩm đất: "));
-    Serial.print(soilMoisture);
-    Serial.println(F(" %"));
-
-    Serial.print(F("[RELAY]  Van(IN1): "));
-    Serial.print(valveState ? F("BẬT") : F("TẮT"));
-    Serial.print(F(" | Quạt(IN2): "));
-    Serial.print(fanState ? F("BẬT") : F("TẮT"));
-    Serial.print(F(" | Đèn(IN3): "));
-    Serial.println(lightState ? F("BẬT") : F("TẮT"));
-  }
-
-  // 3. Quản lý chu kỳ gửi Telemetry hoặc lưu Offline khi mất mạng
+  // 2. Quản lý chu kỳ đo & gửi Telemetry (hoặc lưu Offline khi mất mạng)
+  // ĐỒNG BỘ WEB & FIRMWARE: "KHI NÀO GỬI MỚI ĐO"
+  // Chỉ đo cảm biến và kiểm tra tự động hóa ngay trước khi gửi bản tin lên Server (hoặc lưu offline).
   bool isOnline = (WiFi.status() == WL_CONNECTED) && mqtt.connected();
   if (millis() - lastPublishMs >= PUBLISH_INTERVAL_MS) {
     lastPublishMs = millis();
 
+    // Bước 1: Tiến hành đo mới cảm biến và kiểm tra tự động kích Relay
+    measureSensorsAndAutoControl();
+
+    // Bước 2: Đóng gói và gửi lên Server / Web (hoặc lưu Offline nếu mất mạng)
     if (!isOnline) {
       // MẤT MẠNG: Tự động lưu các thông số cảm biến và trạng thái bật/tắt thiết bị vào RAM
       saveOfflineRecord();
@@ -840,7 +846,7 @@ void loop() {
     }
   }
 
-  // 4. DUY TRÌ & KẾT NỐI LẠI WI-FI (KHÔNG GỌI WiFi.disconnect() tránh ngắt quãng bắt tay DHCP)
+  // 3. DUY TRÌ & KẾT NỐI LẠI WI-FI (KHÔNG GỌI WiFi.disconnect() tránh ngắt quãng bắt tay DHCP)
   static uint32_t lastWifiRetryMs = 0;
   static uint32_t disconnectedStartMs = 0;
 
