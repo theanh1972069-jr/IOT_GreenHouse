@@ -1,0 +1,249 @@
+/* ==========================================================================
+   TimeWheelPicker.css - iOS Style 24h Time Wheel Picker
+   ========================================================================== */
+
+.time-wheel-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 240px;
+  height: 200px; /* 5 hàng x 40px */
+  background: #ffffff;
+  border-radius: 14px;
+  user-select: none;
+  overflow: hidden;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* Hiệu ứng mờ dần ở mép trên và mép dưới (Mask Gradient iOS) */
+.time-wheel-mask {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.35) 15%,
+    rgba(0, 0, 0, 1) 32%,
+    rgba(0, 0, 0, 1) 68%,
+    rgba(0, 0, 0, 0.35) 85%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.35) 15%,
+    rgba(0, 0, 0, 1) 32%,
+    rgba(0, 0, 0, 1) 68%,
+    rgba(0, 0, 0, 0.35) 85%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+
+/* Dải highlight ngang xám nhạt kéo dài qua cả 2 cột ở hàng giữa (Hàng 3) */
+.time-wheel-highlight {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 80px; /* (200px - 40px) / 2 */
+  height: 40px;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Khung 2 cột */
+.time-wheel-columns {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+
+/* Dấu hai chấm ngăn cách ở giữa */
+.time-wheel-separator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #334155;
+  padding-bottom: 2px;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Cột cuộn */
+.time-wheel-col {
+  flex: 1;
+  height: 100%;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  outline: none;
+  cursor: grab;
+  touch-action: pan-y;
+  position: relative;
+  padding: 80px 0; /* Padding để hàng đầu và cuối có thể snap vào đúng giữa */
+  box-sizing: border-box;
+}
+
+.time-wheel-col::-webkit-scrollbar {
+  display: none;
+}
+
+.time-wheel-col:active {
+  cursor: grabbing;
+}
+
+.time-wheel-col:focus-visible {
+  background: rgba(37, 99, 235, 0.05);
+  border-radius: 6px;
+}
+
+/* Từng số trong bánh xe */
+.time-wheel-item {
+  height: 40px;
+  line-height: 40px;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 500;
+  color: #64748b;
+  scroll-snap-align: center;
+  transition: color 0.15s ease, transform 0.15s ease, font-size 0.15s ease;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.time-wheel-item.selected {
+  font-size: 23px;
+  font-weight: 700;
+  color: #0f172a;
+  transform: scale(1.08);
+}
+
+/* ==========================================================================
+   TimeWheelInput (Dạng Input gõ được + Popover mở bánh xe)
+   ========================================================================== */
+
+.time-wheel-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.time-wheel-input-box {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  gap: 6px;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.time-wheel-input-box:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.time-wheel-input-text {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  font-family: inherit;
+}
+
+.time-wheel-trigger-btn {
+  border: none;
+  background: transparent;
+  padding: 4px;
+  cursor: pointer;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.time-wheel-trigger-btn:hover {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+/* Popover Panel */
+.time-wheel-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1050;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.15), 0 4px 10px -2px rgba(0, 0, 0, 0.08);
+  padding: 8px 10px 10px;
+  animation: timeWheelFadeIn 0.15s ease-out;
+  width: 240px;
+  box-sizing: border-box;
+}
+
+@keyframes timeWheelFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.time-wheel-popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 4px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 6px;
+}
+
+.time-wheel-popover-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.time-wheel-done-btn {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.time-wheel-done-btn:hover {
+  background: #1d4ed8;
+}

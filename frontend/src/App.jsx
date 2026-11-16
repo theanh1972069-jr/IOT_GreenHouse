@@ -12,6 +12,7 @@ import {
 } from './pages.jsx';
 import { apiRequest, clearSession, getStoredSession, saveSession } from './api.js';
 import { roleLabel, useAvatar } from './avatar.js';
+import { TimeWheelInput } from './TimeWheelPicker.jsx';
 import {
   Activity,
   AlertCircle,
@@ -1852,84 +1853,30 @@ function Devices() {
                       {draftLightOn || '19:00'} (Bật) ➔ {draftLightOff || '07:00'} (Tắt)
                     </strong>
                   </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8 }}>
                     <div>
                       <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
                         🌙 Giờ bật đèn (24h):
                       </span>
-                      <input
-                        type="text"
-                        list="light-on-presets"
-                        className="threshold-val-input"
-                        style={{ width: '100%', height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 600 }}
-                        placeholder="19:00"
-                        maxLength={5}
+                      <TimeWheelInput
                         value={draftLightOn}
-                        onChange={(e) => setDraftLightOn(e.target.value)}
-                        onBlur={() => {
-                          const val = (draftLightOn || '').trim();
-                          if (/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(val)) {
-                            const [h, m] = val.split(':');
-                            setDraftLightOn(`${h.padStart(2, '0')}:${m.padStart(2, '0')}`);
-                          } else if (/^\d{1,2}$/.test(val)) {
-                            const h = Math.min(23, Math.max(0, parseInt(val, 10)));
-                            setDraftLightOn(`${String(h).padStart(2, '0')}:00`);
-                          } else if (/^\d{3,4}$/.test(val)) {
-                            const h = Math.min(23, parseInt(val.slice(0, val.length - 2), 10));
-                            const m = Math.min(59, parseInt(val.slice(-2), 10));
-                            setDraftLightOn(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-                          }
-                        }}
-                        required
+                        onChange={setDraftLightOn}
+                        label="Giờ bật đèn (24h)"
+                        icon="🌙"
+                        placeholder="19:00"
                       />
-                      <datalist id="light-on-presets">
-                        <option value="18:00" />
-                        <option value="18:30" />
-                        <option value="19:00" />
-                        <option value="19:30" />
-                        <option value="20:00" />
-                        <option value="21:00" />
-                        <option value="22:00" />
-                      </datalist>
                     </div>
                     <div>
                       <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
                         ☀️ Giờ tắt đèn (24h):
                       </span>
-                      <input
-                        type="text"
-                        list="light-off-presets"
-                        className="threshold-val-input"
-                        style={{ width: '100%', height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 600 }}
-                        placeholder="07:00"
-                        maxLength={5}
+                      <TimeWheelInput
                         value={draftLightOff}
-                        onChange={(e) => setDraftLightOff(e.target.value)}
-                        onBlur={() => {
-                          const val = (draftLightOff || '').trim();
-                          if (/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(val)) {
-                            const [h, m] = val.split(':');
-                            setDraftLightOff(`${h.padStart(2, '0')}:${m.padStart(2, '0')}`);
-                          } else if (/^\d{1,2}$/.test(val)) {
-                            const h = Math.min(23, Math.max(0, parseInt(val, 10)));
-                            setDraftLightOff(`${String(h).padStart(2, '0')}:00`);
-                          } else if (/^\d{3,4}$/.test(val)) {
-                            const h = Math.min(23, parseInt(val.slice(0, val.length - 2), 10));
-                            const m = Math.min(59, parseInt(val.slice(-2), 10));
-                            setDraftLightOff(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-                          }
-                        }}
-                        required
+                        onChange={setDraftLightOff}
+                        label="Giờ tắt đèn (24h)"
+                        icon="☀️"
+                        placeholder="07:00"
                       />
-                      <datalist id="light-off-presets">
-                        <option value="05:00" />
-                        <option value="05:30" />
-                        <option value="06:00" />
-                        <option value="06:30" />
-                        <option value="07:00" />
-                        <option value="07:30" />
-                        <option value="08:00" />
-                      </datalist>
                     </div>
                   </div>
                   <small style={{ color: '#7a8980', fontSize: 11, marginTop: 8, display: 'block' }}>
