@@ -45,7 +45,6 @@ public class DeviceLiveService {
     private final MqttPublisherService mqttPublisherService;
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
-    private final ScheduledExecutorService overrideScheduler = Executors.newScheduledThreadPool(2);
 
     /**
      * Standard wired actuators connected to the ESP32 node pins.
@@ -64,22 +63,6 @@ public class DeviceLiveService {
         boolean wasOnline = status.isOnline();
         boolean stillRecent = status.getLastSeen() != null &&
                 status.getLastSeen().isAfter(ZonedDateTime.now().minusSeconds(25));
-
-        if (status.getValveOverrideUntil() != null) {
-            long rem = java.time.Duration.between(ZonedDateTime.now(), status.getValveOverrideUntil()).getSeconds();
-            status.setValveOverrideSeconds(rem > 0 ? rem : 0L);
-            if (rem <= 0) status.setValveOverrideUntil(null);
-        } else {
-            status.setValveOverrideSeconds(0L);
-        }
-
-        if (status.getFanOverrideUntil() != null) {
-            long rem = java.time.Duration.between(ZonedDateTime.now(), status.getFanOverrideUntil()).getSeconds();
-            status.setFanOverrideSeconds(rem > 0 ? rem : 0L);
-            if (rem <= 0) status.setFanOverrideUntil(null);
-        } else {
-            status.setFanOverrideSeconds(0L);
-        }
 
         if (!stillRecent) {
             status.setOnline(false);
@@ -223,34 +206,6 @@ public class DeviceLiveService {
                         updateActuatorState(status, "light", lightState);
                     }
 
-                    if (root.has("valveOverrideSec")) {
-                        long sec = root.get("valveOverrideSec").asLong(0);
-                        status.setValveOverrideSeconds(sec);
-                        if (sec > 0) {
-                            status.setValveOverrideUntil(ZonedDateTime.now().plusSeconds(sec));
-                        } else {
-                            status.setValveOverrideUntil(null);
-                        }
-                    }
-                    if (root.has("fanOverrideSec")) {
-                        long sec = root.get("fanOverrideSec").asLong(0);
-                        status.setFanOverrideSeconds(sec);
-                        if (sec > 0) {
-                            status.setFanOverrideUntil(ZonedDateTime.now().plusSeconds(sec));
-                        } else {
-                            status.setFanOverrideUntil(null);
-                        }
-                    }
-                    if (root.has("lightOverrideSec")) {
-                        long sec = root.get("lightOverrideSec").asLong(0);
-                        status.setLightOverrideSeconds(sec);
-                        if (sec > 0) {
-                            status.setLightOverrideUntil(ZonedDateTime.now().plusSeconds(sec));
-                        } else {
-                            status.setLightOverrideUntil(null);
-                        }
-                    }
-
                     if (root.has("totalPowerW")) {
                         status.setTotalPowerW(root.get("totalPowerW").asDouble(0.0));
                     }
@@ -326,81 +281,26 @@ public class DeviceLiveService {
             return status;
         }
 
-        status.setLastAlertMessage(null);
-
-        // Kiểm tra và ghi nhận cảnh báo can thiệp thủ công trong 5 phút
-        if ("valve".equalsIgnoreCase(actuatorId)) {
-            Integer soil = status.getSoilMoisture();
-            Double threshold = status.getSoilThreshold();
-            int currentSoil = soil != null ? soil : 0;
-            double currentThresh = threshold != null ? threshold : 30.0;
-
-            long overrideSec = (status.getOverrideDurationSeconds() != null && status.getOverrideDurationSeconds() > 0)
-                    ? status.getOverrideDurationSeconds()
-                    : 300L;
-            int overrideMinutes = (int) Math.max(1, Math.round(overrideSec / 60.0));
-
-            String msg;
-            if (turnOn) {
-                if (currentSoil >= (int) currentThresh) {
-                    msg = String.format("Thiết bị đang có độ ẩm đất (%d%%) không ở ngưỡng bật/tắt (< %.0f%%), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentSoil, currentThresh, overrideMinutes);
-                } else {
-                    msg = String.format("Thiết bị đã được bật van thủ công (độ ẩm đất hiện tại %d%%, ngưỡng < %.0f%%), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentSoil, currentThresh, overrideMinutes);
-                }
-            } else {
-                msg = String.format("Thiết bị đã được tắt van thủ công (độ ẩm đất hiện tại %d%%, ngưỡng < %.0f%%), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentSoil, currentThresh, overrideMinutes);
-            }
-
-            raiseManualOverrideAlert(deviceId, "SOIL_MOISTURE", msg);
-            status.setValveOverrideUntil(ZonedDateTime.now().plusSeconds(overrideSec));
-            status.setValveOverrideSeconds(overrideSec);
-            status.setLastAlertMessage(msg);
-            scheduleAutoRevert(deviceId, "valve", overrideMinutes);
-
-        } else if ("fan".equalsIgnoreCase(actuatorId)) {
-            Double temp = status.getTemperature();
-            Double threshold = status.getTempThreshold();
-            double currentTemp = temp != null ? temp : 0.0;
-            double currentThresh = threshold != null ? threshold : 35.0;
-
-            long overrideSec = (status.getOverrideDurationSeconds() != null && status.getOverrideDurationSeconds() > 0)
-                    ? status.getOverrideDurationSeconds()
-                    : 300L;
-            int overrideMinutes = (int) Math.max(1, Math.round(overrideSec / 60.0));
-
-            String msg;
-            if (turnOn) {
-                if (currentTemp <= currentThresh) {
-                    msg = String.format("Thiết bị đang có nhiệt độ (%.1f°C) không ở ngưỡng bật/tắt (> %.0f°C), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentTemp, currentThresh, overrideMinutes);
-                } else {
-                    msg = String.format("Thiết bị đã được bật quạt thủ công (nhiệt độ hiện tại %.1f°C, ngưỡng > %.0f°C), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentTemp, currentThresh, overrideMinutes);
-                }
-            } else {
-                msg = String.format("Thiết bị đã được tắt quạt thủ công (nhiệt độ hiện tại %.1f°C, ngưỡng > %.0f°C), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentTemp, currentThresh, overrideMinutes);
-            }
-
-            raiseManualOverrideAlert(deviceId, "TEMPERATURE", msg);
-            status.setFanOverrideUntil(ZonedDateTime.now().plusSeconds(overrideSec));
-            status.setFanOverrideSeconds(overrideSec);
-            status.setLastAlertMessage(msg);
-            scheduleAutoRevert(deviceId, "fan", overrideMinutes);
-
-        } else if ("light".equalsIgnoreCase(actuatorId)) {
-            // Đèn quang hợp điều khiển theo Lịch chiếu sáng (mặc định 19:00 - 07:00) và công tắc thủ công,
-            // không tự động ngắt/bật theo nhiệt độ.
-            status.setLightOverrideUntil(null);
-            status.setLightOverrideSeconds(0L);
+        boolean switchedFromAuto = false;
+        if (status.isAutoMode()) {
+            status.setAutoMode(false);
+            switchedFromAuto = true;
+            deviceRepository.findByDeviceId(deviceId).ifPresent(device -> {
+                DeviceConfiguration config = configurationRepository.findByDeviceId(device.getId())
+                        .orElseGet(() -> DeviceConfiguration.builder().device(device).build());
+                config.setAutoWatering(false);
+                configurationRepository.save(config);
+            });
         }
 
         updateActuatorState(status, actuatorId, turnOn);
         status.recalculateTotalPower();
 
-        long overrideSec = (status.getOverrideDurationSeconds() != null && status.getOverrideDurationSeconds() > 0)
-                ? status.getOverrideDurationSeconds()
-                : 300L;
         int stateInt = turnOn ? 1 : 0;
         String topic = "greenhouse/" + deviceId + "/control";
-        String payload = String.format("{\"%s\":%d,\"overrideSec\":%d}", actuatorId.toLowerCase(), stateInt, overrideSec);
+        String payload = switchedFromAuto
+                ? String.format("{\"auto\":0,\"%s\":%d}", actuatorId.toLowerCase(), stateInt)
+                : String.format("{\"%s\":%d}", actuatorId.toLowerCase(), stateInt);
         mqttPublisherService.publish(topic, payload);
 
         if (actor != null) {
@@ -411,75 +311,6 @@ public class DeviceLiveService {
         return status;
     }
 
-    private void raiseManualOverrideAlert(String deviceId, String category, String message) {
-        deviceRepository.findByDeviceId(deviceId).ifPresent(device -> {
-            Alert alert = Alert.builder()
-                    .device(device)
-                    .type("MANUAL_OVERRIDE_" + category)
-                    .severity("MEDIUM")
-                    .message(message)
-                    .status("OPEN")
-                    .build();
-            alertRepository.save(alert);
-            log.info("Raised manual override alert for device {}: {}", deviceId, message);
-        });
-    }
-
-    private void scheduleAutoRevert(String deviceId, String actuatorId, int minutes) {
-        overrideScheduler.schedule(() -> {
-            try {
-                DeviceLiveStatus live = liveStore.get(deviceId);
-                if (live == null || !live.isOnline() || !live.isAutoMode()) {
-                    return;
-                }
-                log.info("Checking auto-revert after {} minutes for device {} actuator {}", minutes, deviceId, actuatorId);
-                if ("valve".equalsIgnoreCase(actuatorId)) {
-                    Integer soil = live.getSoilMoisture();
-                    Double threshold = live.getSoilThreshold();
-                    if (soil != null && threshold != null) {
-                        if (soil < threshold.intValue() && !isActuatorOn(live, "valve")) {
-                            log.info("Auto-reverting valve to ON for device {}: soil={} < threshold={}", deviceId, soil, threshold);
-                            controlActuatorInternal(deviceId, "valve", true);
-                        } else if (soil >= (threshold.intValue() + 25) && isActuatorOn(live, "valve")) {
-                            log.info("Auto-reverting valve to OFF for device {}: soil={} >= thresholdOff", deviceId, soil);
-                            controlActuatorInternal(deviceId, "valve", false);
-                        }
-                    }
-                } else if ("fan".equalsIgnoreCase(actuatorId)) {
-                    Double temp = live.getTemperature();
-                    Double threshold = live.getTempThreshold();
-                    if (temp != null && threshold != null) {
-                        if (temp > threshold && !isActuatorOn(live, "fan")) {
-                            log.info("Auto-reverting fan to ON for device {}: temp={} > threshold={}", deviceId, temp, threshold);
-                            controlActuatorInternal(deviceId, "fan", true);
-                        } else if (temp <= (threshold - 5.0) && isActuatorOn(live, "fan")) {
-                            log.info("Auto-reverting fan to OFF for device {}: temp={} <= thresholdOff", deviceId, temp);
-                            controlActuatorInternal(deviceId, "fan", false);
-                        }
-                    }
-                }
-            } catch (Exception ex) {
-                log.error("Error executing auto-revert for device {}: {}", deviceId, ex.getMessage());
-            }
-        }, minutes, TimeUnit.MINUTES);
-    }
-
-    private boolean isActuatorOn(DeviceLiveStatus status, String actuatorId) {
-        if (status.getActuators() == null) return false;
-        return status.getActuators().stream()
-                .anyMatch(a -> a.id().equalsIgnoreCase(actuatorId) && a.state());
-    }
-
-    private void controlActuatorInternal(String deviceId, String actuatorId, boolean turnOn) {
-        DeviceLiveStatus status = liveStore.get(deviceId);
-        if (status == null) return;
-        updateActuatorState(status, actuatorId, turnOn);
-        status.recalculateTotalPower();
-        String topic = "greenhouse/" + deviceId + "/control";
-        String payload = String.format("{\"%s\":%d}", actuatorId.toLowerCase(), turnOn ? 1 : 0);
-        mqttPublisherService.publish(topic, payload);
-    }
-
     /**
      * Switches between Auto and Manual mode.
      */
@@ -487,6 +318,13 @@ public class DeviceLiveService {
                                         User actor, HttpServletRequest httpRequest) {
         DeviceLiveStatus status = getOrCreateLiveStatus(deviceId);
         status.setAutoMode(autoMode);
+
+        deviceRepository.findByDeviceId(deviceId).ifPresent(device -> {
+            DeviceConfiguration config = configurationRepository.findByDeviceId(device.getId())
+                    .orElseGet(() -> DeviceConfiguration.builder().device(device).build());
+            config.setAutoWatering(autoMode);
+            configurationRepository.save(config);
+        });
 
         String topic = "greenhouse/" + deviceId + "/control";
         String payload = String.format("{\"auto\":%d}", autoMode ? 1 : 0);
@@ -508,7 +346,6 @@ public class DeviceLiveService {
     public DeviceLiveStatus updateThresholds(String deviceId, BigDecimal temperatureHigh,
                                              BigDecimal soilMoistureLow, BigDecimal lightTempLow,
                                              Boolean autoMode,
-                                             Integer overrideDurationSeconds,
                                              User actor, HttpServletRequest httpRequest) {
         DeviceLiveStatus status = getOrCreateLiveStatus(deviceId);
 
@@ -516,9 +353,6 @@ public class DeviceLiveService {
         if (soilMoistureLow != null) status.setSoilThreshold(soilMoistureLow.doubleValue());
         if (lightTempLow != null) status.setLightTempThreshold(lightTempLow.doubleValue());
         if (autoMode != null) status.setAutoMode(autoMode);
-        if (overrideDurationSeconds != null && overrideDurationSeconds > 0) {
-            status.setOverrideDurationSeconds(overrideDurationSeconds);
-        }
 
         // Persist to DeviceConfiguration table
         Optional<Device> deviceOpt = deviceRepository.findByDeviceId(deviceId);
@@ -535,16 +369,13 @@ public class DeviceLiveService {
 
         // Send command to ESP32 via MQTT so it immediately operates with the new thresholds
         String topic = "greenhouse/" + deviceId + "/control";
-        int overrideSec = status.getOverrideDurationSeconds() != null && status.getOverrideDurationSeconds() > 0
-                ? status.getOverrideDurationSeconds() : 300;
         String payload = String.format(
                 java.util.Locale.US,
-                "{\"tempThreshold\":%.1f,\"soilThreshold\":%.1f,\"lightTempThreshold\":%.1f,\"auto\":%d,\"overrideSec\":%d}",
+                "{\"tempThreshold\":%.1f,\"soilThreshold\":%.1f,\"lightTempThreshold\":%.1f,\"auto\":%d}",
                 status.getTempThreshold(),
                 status.getSoilThreshold(),
                 status.getLightTempThreshold(),
-                status.isAutoMode() ? 1 : 0,
-                overrideSec
+                status.isAutoMode() ? 1 : 0
         );
         mqttPublisherService.publish(topic, payload);
 
@@ -553,8 +384,7 @@ public class DeviceLiveService {
                     deviceId, Map.of("tempThreshold", status.getTempThreshold(),
                             "soilThreshold", status.getSoilThreshold(),
                             "lightTempThreshold", status.getLightTempThreshold(),
-                            "auto", status.isAutoMode(),
-                            "overrideSec", overrideSec));
+                            "auto", status.isAutoMode()));
         }
 
         return status;

@@ -38,18 +38,7 @@ public class DeviceLiveStatus {
     private Double lightTempThreshold = 20.0;
 
     @Builder.Default
-    private Integer overrideDurationSeconds = 300;
-
-    @Builder.Default
     private double totalPowerW = 0.0;
-
-    private ZonedDateTime valveOverrideUntil;
-    private ZonedDateTime fanOverrideUntil;
-    private ZonedDateTime lightOverrideUntil;
-    private Long valveOverrideSeconds;
-    private Long fanOverrideSeconds;
-    private Long lightOverrideSeconds;
-    private String lastAlertMessage;
 
     @Builder.Default
     private List<ActuatorLiveView> actuators = new ArrayList<>();

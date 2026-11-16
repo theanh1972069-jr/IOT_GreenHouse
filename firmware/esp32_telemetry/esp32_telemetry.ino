@@ -66,12 +66,8 @@ const float RATED_FAN_W   = 1.8;
 const float RATED_VALVE_W = 4.8;
 const float RATED_LIGHT_W = 9.6;
 
-// ============================ 4. BIẾN THỜI GIAN & CAN THIỆP THỦ CÔNG =========
-// Bỏ qua tự động hóa sau khi người dùng can thiệp thủ công (mặc định 5 phút = 300,000 ms, có thể chỉnh động từ Web)
-uint32_t manualOverrideDurationMs = 300000UL;
-uint32_t valveOverrideUntilMs = 0;
-uint32_t fanOverrideUntilMs   = 0;
-uint32_t lightOverrideUntilMs = 0;
+// ============================ 4. BIẾN THỜI GIAN ĐO ĐẠC ==========================
+// Chế độ thủ công đóng vai trò khóa tự động cho đến khi người dùng chuyển lại chế độ tự động.
 
 // Chu kỳ đo và gửi Telemetry:
 // Mỗi 2 giây đo 1 lần. Nếu biến động lớn (nhiệt độ >= 1.0°C, độ ẩm KK >= 5%, độ ẩm đất >= 5%, hoặc đổi relay) -> gửi luôn!
@@ -272,55 +268,37 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
 
   bool stateChanged = false;
 
-  // Cập nhật thời gian ngừng tự động (overrideSec) nếu nhận được từ Web/Server
-  int overrideIdx = message.indexOf("\"overrideSec\":");
-  if (overrideIdx >= 0) {
-    int parsedSec = message.substring(overrideIdx + 14).toInt();
-    if (parsedSec > 0) {
-      manualOverrideDurationMs = (uint32_t)parsedSec * 1000UL;
-      Serial.print(F("[CẤU HÌNH] Cập nhật thời gian ngừng tự động (overrideSec): "));
-      Serial.print(parsedSec);
-      Serial.println(F(" giây"));
-    }
-  }
-
   if (message.indexOf("\"valve\":1") >= 0) {
     valveState = true;
-    valveOverrideUntilMs = millis() + manualOverrideDurationMs;
     setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1) [THỦ CÔNG]");
-    Serial.println(F("[THỦ CÔNG] Bật van nước. Tạm dừng tự động hóa van. Cảm biến vẫn đo bình thường."));
+    Serial.println(F("[THỦ CÔNG] Bật van nước."));
     stateChanged = true;
   } else if (message.indexOf("\"valve\":0") >= 0) {
     valveState = false;
-    valveOverrideUntilMs = millis() + manualOverrideDurationMs;
     setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1) [THỦ CÔNG]");
-    Serial.println(F("[THỦ CÔNG] Tắt van nước. Tạm dừng tự động hóa van. Cảm biến vẫn đo bình thường."));
+    Serial.println(F("[THỦ CÔNG] Tắt van nước."));
     stateChanged = true;
   }
 
   if (message.indexOf("\"fan\":1") >= 0) {
     fanState = true;
-    fanOverrideUntilMs = millis() + manualOverrideDurationMs;
     setRelay(RELAY_FAN_PIN, true, "Quạt gió (IN2) [THỦ CÔNG]");
-    Serial.println(F("[THỦ CÔNG] Bật quạt gió. Tạm dừng tự động hóa quạt. Cảm biến vẫn đo bình thường."));
+    Serial.println(F("[THỦ CÔNG] Bật quạt gió."));
     stateChanged = true;
   } else if (message.indexOf("\"fan\":0") >= 0) {
     fanState = false;
-    fanOverrideUntilMs = millis() + manualOverrideDurationMs;
     setRelay(RELAY_FAN_PIN, false, "Quạt gió (IN2) [THỦ CÔNG]");
-    Serial.println(F("[THỦ CÔNG] Tắt quạt gió. Tạm dừng tự động hóa quạt. Cảm biến vẫn đo bình thường."));
+    Serial.println(F("[THỦ CÔNG] Tắt quạt gió."));
     stateChanged = true;
   }
 
   if (message.indexOf("\"light\":1") >= 0) {
     lightState = true;
-    lightOverrideUntilMs = 0;
     setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3) [BẬT]");
     Serial.println(F("[LỆNH] Bật đèn quang hợp (IN3)."));
     stateChanged = true;
   } else if (message.indexOf("\"light\":0") >= 0) {
     lightState = false;
-    lightOverrideUntilMs = 0;
     setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [TẮT]");
     Serial.println(F("[LỆNH] Tắt đèn quang hợp (IN3)."));
     stateChanged = true;
@@ -328,50 +306,65 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
 
   if (message.indexOf("\"auto\":1") >= 0) {
     autoControlMode = true;
-    Serial.println(F("[CHẾ ĐỘ] Bật tự động điều khiển theo ngưỡng."));
+    preferences.begin("greenhouse", false);
+    preferences.putBool("auto_mode", true);
+    preferences.end();
+    Serial.println(F("[CHẾ ĐỘ] Bật tự động điều khiển theo ngưỡng (Đã lưu vào Flash NVS)."));
     stateChanged = true;
   } else if (message.indexOf("\"auto\":0") >= 0) {
     autoControlMode = false;
-    Serial.println(F("[CHẾ ĐỘ] Tắt tự động (chuyển sang điều khiển thủ công)."));
+    preferences.begin("greenhouse", false);
+    preferences.putBool("auto_mode", false);
+    preferences.end();
+    Serial.println(F("[CHẾ ĐỘ] Chuyển sang chế độ thủ công (Đã lưu vào Flash NVS). Tự động bị khóa cho đến khi bật lại."));
     stateChanged = true;
   }
 
-  // Nhận ngưỡng nhiệt độ cập nhật trực tiếp từ Web
+  // Nhận ngưỡng nhiệt độ cập nhật trực tiếp từ Web và lưu vào Flash NVS của ESP32
   int tempIdx = message.indexOf("\"tempThreshold\":");
   if (tempIdx >= 0) {
     float newTemp = message.substring(tempIdx + 16).toFloat();
     if (newTemp >= 10.0 && newTemp <= 70.0) {
       tempThreshold = newTemp;
       tempThresholdOff = max(10.0f, tempThreshold - 5.0f);
-      Serial.print(F("[CẤU HÌNH WEB] Đã nhận ngưỡng nhiệt độ bật quạt: > "));
+      preferences.begin("greenhouse", false);
+      preferences.putFloat("temp_thresh", tempThreshold);
+      preferences.end();
+      Serial.print(F("[CẤU HÌNH WEB] Đã lưu ngưỡng nhiệt độ bật quạt vào Flash: > "));
       Serial.print(tempThreshold, 1);
       Serial.println(F(" °C"));
       stateChanged = true;
     }
   }
 
-  // Nhận ngưỡng độ ẩm đất cập nhật trực tiếp từ Web
+  // Nhận ngưỡng độ ẩm đất cập nhật trực tiếp từ Web và lưu vào Flash NVS của ESP32
   int soilIdx = message.indexOf("\"soilThreshold\":");
   if (soilIdx >= 0) {
     int newSoil = message.substring(soilIdx + 16).toInt();
     if (newSoil >= 0 && newSoil <= 100) {
       soilThreshold = newSoil;
       soilThresholdOff = min(100, soilThreshold + 25);
-      Serial.print(F("[CẤU HÌNH WEB] Đã nhận ngưỡng độ ẩm đất bật tưới: < "));
+      preferences.begin("greenhouse", false);
+      preferences.putInt("soil_thresh", soilThreshold);
+      preferences.end();
+      Serial.print(F("[CẤU HÌNH WEB] Đã lưu ngưỡng độ ẩm đất bật tưới vào Flash: < "));
       Serial.print(soilThreshold);
       Serial.println(F(" %"));
       stateChanged = true;
     }
   }
 
-  // Nhận ngưỡng nhiệt độ bật đèn quang hợp cập nhật trực tiếp từ Web
+  // Nhận ngưỡng nhiệt độ bật đèn quang hợp cập nhật trực tiếp từ Web và lưu vào Flash NVS
   int lightTempIdx = message.indexOf("\"lightTempThreshold\":");
   if (lightTempIdx >= 0) {
     float newLightTemp = message.substring(lightTempIdx + 21).toFloat();
     if (newLightTemp >= 5.0 && newLightTemp <= 45.0) {
       lightTempThreshold = newLightTemp;
       lightTempThresholdOff = min(45.0f, lightTempThreshold + 2.0f);
-      Serial.print(F("[CẤU HÌNH WEB] Đã nhận ngưỡng nhiệt độ bật đèn quang hợp: < "));
+      preferences.begin("greenhouse", false);
+      preferences.putFloat("light_thresh", lightTempThreshold);
+      preferences.end();
+      Serial.print(F("[CẤU HÌNH WEB] Đã lưu ngưỡng nhiệt độ bật đèn vào Flash: < "));
       Serial.print(lightTempThreshold, 1);
       Serial.println(F(" °C"));
       stateChanged = true;
@@ -439,48 +432,24 @@ void measureSensorsAndAutoControl() {
   soilMoisture = map(soilRaw, AIR_VALUE, WATER_VALUE, 0, 100);
   soilMoisture = constrain(soilMoisture, 0, 100);
 
-  // 3. Tự động kích Relay theo ngưỡng (chỉ can thiệp khi KHÔNG trong thời gian override thủ công 5 phút)
+  // 3. Tự động kích Relay theo ngưỡng (chỉ can thiệp khi đang bật chế độ TỰ ĐỘNG)
   if (autoControlMode) {
-    // Tự động van nước (bỏ qua nếu đang trong 5 phút can thiệp thủ công)
-    if (valveOverrideUntilMs != 0 && millis() >= valveOverrideUntilMs) {
-      valveOverrideUntilMs = 0; // Đã hết 5 phút can thiệp thủ công
-      Serial.println(F("[TỰ ĐỘNG] Hết 5 phút can thiệp thủ công của Van nước. Trở lại chế độ tự động theo ngưỡng."));
+    // Tự động van nước theo độ ẩm đất
+    if (soilMoisture < soilThreshold && !valveState) {
+      valveState = true;
+      setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1) [TỰ ĐỘNG - Đất khô]");
+    } else if (soilMoisture >= soilThresholdOff && valveState) {
+      valveState = false;
+      setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1) [TỰ ĐỘNG - Đủ ẩm]");
     }
 
-    if (valveOverrideUntilMs == 0) {
-      if (soilMoisture < soilThreshold && !valveState) {
-        valveState = true;
-        setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1) [TỰ ĐỘNG - Đất khô]");
-      } else if (soilMoisture >= soilThresholdOff && valveState) {
-        valveState = false;
-        setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1) [TỰ ĐỘNG - Đủ ẩm]");
-      }
-    } else {
-      uint32_t remSec = (valveOverrideUntilMs > millis()) ? ((valveOverrideUntilMs - millis()) / 1000) : 0;
-      Serial.print(F("[KHÓA TỰ ĐỘNG] Van nước đang được giữ thủ công, còn "));
-      Serial.print(remSec);
-      Serial.println(F(" giây trước khi tự động kích hoạt lại."));
-    }
-
-    // Tự động quạt làm mát (bỏ qua nếu đang trong 5 phút can thiệp thủ công)
-    if (fanOverrideUntilMs != 0 && millis() >= fanOverrideUntilMs) {
-      fanOverrideUntilMs = 0; // Đã hết 5 phút can thiệp thủ công
-      Serial.println(F("[TỰ ĐỘNG] Hết 5 phút can thiệp thủ công của Quạt gió. Trở lại chế độ tự động theo ngưỡng."));
-    }
-
-    if (fanOverrideUntilMs == 0) {
-      if (dhtValid && airTemp > tempThreshold && !fanState) {
-        fanState = true;
-        setRelay(RELAY_FAN_PIN, true, "Quạt làm mát (IN2) [TỰ ĐỘNG - Quá nhiệt]");
-      } else if (dhtValid && airTemp <= tempThresholdOff && fanState) {
-        fanState = false;
-        setRelay(RELAY_FAN_PIN, false, "Quạt làm mát (IN2) [TỰ ĐỘNG - Mát]");
-      }
-    } else {
-      uint32_t remSec = (fanOverrideUntilMs > millis()) ? ((fanOverrideUntilMs - millis()) / 1000) : 0;
-      Serial.print(F("[KHÓA TỰ ĐỘNG] Quạt gió đang được giữ thủ công, còn "));
-      Serial.print(remSec);
-      Serial.println(F(" giây trước khi tự động kích hoạt lại."));
+    // Tự động quạt làm mát theo nhiệt độ
+    if (dhtValid && airTemp > tempThreshold && !fanState) {
+      fanState = true;
+      setRelay(RELAY_FAN_PIN, true, "Quạt làm mát (IN2) [TỰ ĐỘNG - Quá nhiệt]");
+    } else if (dhtValid && airTemp <= tempThresholdOff && fanState) {
+      fanState = false;
+      setRelay(RELAY_FAN_PIN, false, "Quạt làm mát (IN2) [TỰ ĐỘNG - Mát]");
     }
 
     // Đèn quang hợp (IN3) được điều khiển theo Lịch chiếu sáng (mặc định 19:00 - 07:00) từ Server
@@ -524,15 +493,10 @@ void publishTelemetry() {
   float lightPower = lightState ? RATED_LIGHT_W : 0.0;
   float totalPower = valvePower + fanPower + lightPower;
 
-  uint32_t valveRemSec = (millis() < valveOverrideUntilMs) ? ((valveOverrideUntilMs - millis()) / 1000) : 0;
-  uint32_t fanRemSec   = (millis() < fanOverrideUntilMs)   ? ((fanOverrideUntilMs - millis()) / 1000) : 0;
-  uint32_t lightRemSec = (millis() < lightOverrideUntilMs) ? ((lightOverrideUntilMs - millis()) / 1000) : 0;
-
   snprintf(jsonBuffer, sizeof(jsonBuffer),
            "{\"temperature\":%.1f,\"humidity\":%.1f,\"soilMoisture\":%d,\"auto\":%d,"
            "\"tempThreshold\":%.1f,\"soilThreshold\":%d,\"lightTempThreshold\":%.1f,\"totalPowerW\":%.1f,"
            "\"valve\":%d,\"fan\":%d,\"light\":%d,"
-           "\"valveOverrideSec\":%u,\"fanOverrideSec\":%u,\"lightOverrideSec\":%u,"
            "\"actuators\":["
              "{\"id\":\"valve\",\"name\":\"Van tưới nước (IN1)\",\"pin\":\"GPIO 25 (IN1)\",\"type\":\"VALVE\",\"state\":%d,\"powerW\":%.1f,\"ratedW\":%.1f},"
              "{\"id\":\"fan\",\"name\":\"Quạt thông gió (IN2)\",\"pin\":\"GPIO 33 (IN2)\",\"type\":\"FAN\",\"state\":%d,\"powerW\":%.1f,\"ratedW\":%.1f},"
@@ -541,7 +505,6 @@ void publishTelemetry() {
            airTemp, airHumidity, soilMoisture, autoControlMode ? 1 : 0,
            tempThreshold, soilThreshold, lightTempThreshold, totalPower,
            valveState ? 1 : 0, fanState ? 1 : 0, lightState ? 1 : 0,
-           valveRemSec, fanRemSec, lightRemSec,
            valveState ? 1 : 0, valvePower, RATED_VALVE_W,
            fanState ? 1 : 0, fanPower, RATED_FAN_W,
            lightState ? 1 : 0, lightPower, RATED_LIGHT_W);
@@ -582,27 +545,21 @@ void handleSerialCommands() {
       testRelayPins();
     } else if (cmdUpper == "LIGHT ON") {
       lightState = true;
-      lightOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3) [SERIAL]");
     } else if (cmdUpper == "LIGHT OFF") {
       lightState = false;
-      lightOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [SERIAL]");
     } else if (cmdUpper == "FAN ON") {
       fanState = true;
-      fanOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_FAN_PIN, true, "Quạt gió (IN2) [SERIAL]");
     } else if (cmdUpper == "FAN OFF") {
       fanState = false;
-      fanOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_FAN_PIN, false, "Quạt gió (IN2) [SERIAL]");
     } else if (cmdUpper == "VALVE ON") {
       valveState = true;
-      valveOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1) [SERIAL]");
     } else if (cmdUpper == "VALVE OFF") {
       valveState = false;
-      valveOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1) [SERIAL]");
     } else if (cmdUpper == "INVERT") {
       isRelayActiveLow = !isRelayActiveLow;
@@ -697,6 +654,20 @@ void setup() {
   Serial.print(F("  - MQTT Server : ")); Serial.println(mqtt_server);
   Serial.print(F("  - MQTT Port   : ")); Serial.println(mqtt_port_str);
   Serial.print(F("  - Device ID   : ")); Serial.println(device_id);
+
+  // Đọc cấu hình chế độ và các ngưỡng từ bộ nhớ Flash NVS của ESP32
+  autoControlMode       = preferences.getBool("auto_mode", true);
+  tempThreshold         = preferences.getFloat("temp_thresh", 35.0f);
+  tempThresholdOff      = max(10.0f, tempThreshold - 5.0f);
+  soilThreshold         = preferences.getInt("soil_thresh", 30);
+  soilThresholdOff      = min(100, soilThreshold + 25);
+  lightTempThreshold    = preferences.getFloat("light_thresh", 20.0f);
+  lightTempThresholdOff = min(45.0f, lightTempThreshold + 2.0f);
+
+  Serial.println(F("[CẤU HÌNH NGƯỠNG TỪ FLASH NVS]:"));
+  Serial.print(F("  - Chế độ tự động  : ")); Serial.println(autoControlMode ? F("BẬT (Auto)") : F("TẮT (Thủ công)"));
+  Serial.print(F("  - Ngưỡng nhiệt độ : > ")); Serial.print(tempThreshold, 1); Serial.println(F(" °C"));
+  Serial.print(F("  - Ngưỡng độ ẩm đất: < ")); Serial.print(soilThreshold); Serial.println(F(" %"));
 
   // Bật chế độ tự động ghi nhớ và tự động kết nối lại Wi-Fi ngầm của phần cứng ESP32
   WiFi.mode(WIFI_STA);
