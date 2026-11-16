@@ -262,7 +262,15 @@ public class DeviceLiveService {
         DeviceLiveStatus status = getOrCreateLiveStatus(deviceId);
 
         if ("all".equalsIgnoreCase(actuatorId)) {
-            // Emergency stop / Turn off all
+            // Ngắt khẩn cấp: Tắt toàn bộ thiết bị và chuyển ngay sang chế độ Thủ công
+            status.setAutoMode(false);
+            deviceRepository.findByDeviceId(deviceId).ifPresent(device -> {
+                DeviceConfiguration config = configurationRepository.findByDeviceId(device.getId())
+                        .orElseGet(() -> DeviceConfiguration.builder().device(device).build());
+                config.setAutoWatering(false);
+                configurationRepository.save(config);
+            });
+
             List<ActuatorLiveView> stopped = new ArrayList<>();
             for (ActuatorLiveView act : status.getActuators()) {
                 stopped.add(new ActuatorLiveView(act.id(), act.name(), act.pin(), act.type(), false, 0.0, 0.0));
@@ -271,12 +279,12 @@ public class DeviceLiveService {
             status.recalculateTotalPower();
 
             String topic = "greenhouse/" + deviceId + "/control";
-            String payload = "{\"valve\":0,\"fan\":0,\"light\":0}";
+            String payload = "{\"auto\":0,\"valve\":0,\"fan\":0,\"light\":0}";
             mqttPublisherService.publish(topic, payload);
 
             if (actor != null) {
                 auditLogService.record(actor, httpRequest, "ACTUATOR_EMERGENCY_STOP", "Device",
-                        deviceId, Map.of("action", "STOP_ALL", "state", "OFF"));
+                        deviceId, Map.of("action", "STOP_ALL", "state", "OFF", "autoMode", false));
             }
             return status;
         }

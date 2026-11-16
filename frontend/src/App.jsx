@@ -1240,6 +1240,8 @@ function Devices() {
 
   async function handleEmergencyStop() {
     const devId = backendDevices[0]?.deviceId || 'esp32-01';
+    setLiveStatus((current) => (current ? { ...current, autoMode: false } : current));
+    setActuators((current) => ({ ...current, fan: false, pump: false, lamp: false, valve: false, light: false }));
     try {
       const updated = await apiRequest(`/api/devices/${encodeURIComponent(devId)}/quick-action`, {
         method: 'POST',
