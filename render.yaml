@@ -40,22 +40,6 @@ services:
         sync: false
       - key: BOOTSTRAP_ADMIN_PASSWORD
         sync: false
-      - key: EMAIL_ENABLED
-        value: "true"
-      - key: MAIL_HOST
-        value: smtp.gmail.com
-      - key: MAIL_PORT
-        value: "587"
-      - key: MAIL_USERNAME
-        sync: false
-      - key: MAIL_PASSWORD
-        sync: false
-      - key: MAIL_FROM
-        sync: false
-      - key: PASSWORD_RESET_URL
-        value: https://greenhouse-frontend.onrender.com/reset-password
-      - key: PASSWORD_RESET_REQUEST_LIMIT_PER_IP
-        value: "100"
 
   # 2. Frontend React Vite (Static Site)
   - type: web
