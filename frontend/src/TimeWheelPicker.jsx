@@ -214,6 +214,7 @@ export function TimeWheelInput({
   label = 'Chọn thời gian',
   icon = '🕒',
   placeholder = '19:00',
+  align = 'left',
 }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef(null);
@@ -279,15 +280,16 @@ export function TimeWheelInput({
           type="button"
           className="time-wheel-trigger-btn"
           onClick={() => setOpen((prev) => !prev)}
-          title="Mở bánh xe cuộn chọn giờ"
+          title={open ? 'Đóng bánh xe cuộn' : 'Mở bánh xe cuộn chọn giờ (hướng lên)'}
+          aria-expanded={open}
         >
-          ▾
+          {open ? '▾' : '▴'}
         </button>
       </div>
 
-      {/* Popover bánh xe cuộn xuất hiện ngay bên dưới ô input */}
+      {/* Popover bánh xe cuộn xuất hiện hướng lên trên ô input */}
       {open && (
-        <div className="time-wheel-popover">
+        <div className={`time-wheel-popover ${align === 'right' ? 'popover-right' : ''}`}>
           <div className="time-wheel-popover-header">
             <span className="time-wheel-popover-title">{label}</span>
             <button type="button" className="time-wheel-done-btn" onClick={() => setOpen(false)}>

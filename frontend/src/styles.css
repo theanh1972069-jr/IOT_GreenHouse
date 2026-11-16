@@ -1489,7 +1489,8 @@ tbody tr:hover { background: #fbfcfa; }
   border-radius: 12px;
   border: 1px solid #d5e4dd;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
   animation: fadeInModal 0.2s ease-out;
 }
 
@@ -1505,6 +1506,8 @@ tbody tr:hover { background: #fbfcfa; }
   padding: 16px 20px;
   border-bottom: 1px solid #e6f0eb;
   background: #f8fbf9;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
 }
 
 .threshold-dialog-header h3 {
@@ -1650,6 +1653,8 @@ tbody tr:hover { background: #fbfcfa; }
   padding: 14px 20px;
   border-top: 1px solid #e6f0eb;
   background: #f8fbf9;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
 }
 
 :root[data-theme="dark"] .power-overview-card {

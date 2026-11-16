@@ -1864,6 +1864,7 @@ function Devices() {
                         label="Giờ bật đèn (24h)"
                         icon="🌙"
                         placeholder="19:00"
+                        align="left"
                       />
                     </div>
                     <div>
@@ -1876,6 +1877,7 @@ function Devices() {
                         label="Giờ tắt đèn (24h)"
                         icon="☀️"
                         placeholder="07:00"
+                        align="right"
                       />
                     </div>
                   </div>
