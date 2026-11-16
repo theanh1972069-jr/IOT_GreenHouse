@@ -55,8 +55,9 @@ public class MqttAdapter {
 
     @Bean
     public MessageProducer inbound(MessageChannel mqttInputChannel) {
+        String clientId = CLIENT_ID + "-" + java.util.UUID.randomUUID().toString().substring(0, 8);
         MqttPahoMessageDrivenChannelAdapter adapter =
-                new MqttPahoMessageDrivenChannelAdapter(CLIENT_ID, mqttClientFactory, TOPIC);
+                new MqttPahoMessageDrivenChannelAdapter(clientId, mqttClientFactory, TOPIC);
         adapter.setCompletionTimeout(5000);
         adapter.setConverter(new DefaultPahoMessageConverter());
         adapter.setQos(1);
@@ -78,8 +79,9 @@ public class MqttAdapter {
     @Bean
     @ServiceActivator(inputChannel = "mqttOutboundChannel")
     public MessageHandler outboundHandler() {
+        String pubClientId = PUBLISHER_CLIENT_ID + "-" + java.util.UUID.randomUUID().toString().substring(0, 8);
         MqttPahoMessageHandler messageHandler =
-                new MqttPahoMessageHandler(PUBLISHER_CLIENT_ID, mqttClientFactory);
+                new MqttPahoMessageHandler(pubClientId, mqttClientFactory);
         messageHandler.setAsync(true);
         messageHandler.setDefaultQos(1);
         return messageHandler;
