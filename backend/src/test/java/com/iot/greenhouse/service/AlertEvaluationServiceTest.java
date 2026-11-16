@@ -88,28 +88,35 @@ class AlertEvaluationServiceTest extends TestDatabase {
 
     @Test
     void raisesAlertWhenTemperatureExceedsThreshold() {
-        // Threshold is 35C; 37C is 2C over, which is HIGH rather than CRITICAL.
+        // Threshold is 35C; 37C is 2C over. When in AUTO, severity is WARNING.
         alertEvaluationService.evaluate(device, reading("37.0", null));
 
         assertThat(alertRepository.findAll())
                 .singleElement()
                 .satisfies(alert -> {
                     assertThat(alert.getType()).isEqualTo("TEMPERATURE_HIGH");
-                    assertThat(alert.getSeverity()).isEqualTo("HIGH");
+                    assertThat(alert.getSeverity()).isEqualTo("WARNING");
                     assertThat(alert.getStatus()).isEqualTo("OPEN");
+                    assertThat(alert.getTargetActuator()).isEqualTo("FAN");
+                    assertThat(alert.getTargetState()).isEqualTo("ON");
                     assertThat(alert.getMessage()).contains("37.0").contains("35.0");
                 });
     }
 
     @Test
-    void escalatesToCriticalWhenFarAboveThreshold() {
-        // 44C is 9C over the 35C threshold, past the 5C escalation margin.
+    void escalatesToCriticalWhenDeviceInManualMode() {
+        // When MANUAL_MODE alert is OPEN, temperature breach raises CRITICAL alert.
+        alertEvaluationService.raiseManualModeAlert(device);
         alertEvaluationService.evaluate(device, reading("44.0", null));
 
         assertThat(alertRepository.findAll())
+                .filteredOn(a -> "TEMPERATURE_HIGH".equals(a.getType()))
                 .singleElement()
-                .extracting(Alert::getSeverity)
-                .isEqualTo("CRITICAL");
+                .satisfies(alert -> {
+                    assertThat(alert.getSeverity()).isEqualTo("CRITICAL");
+                    assertThat(alert.getTargetActuator()).isEqualTo("FAN");
+                    assertThat(alert.getTargetState()).isEqualTo("ON");
+                });
     }
 
     @Test
@@ -130,18 +137,22 @@ class AlertEvaluationServiceTest extends TestDatabase {
                 .singleElement()
                 .satisfies(alert -> {
                     assertThat(alert.getType()).isEqualTo("SOIL_MOISTURE_LOW");
-                    assertThat(alert.getSeverity()).isEqualTo("HIGH");
+                    assertThat(alert.getSeverity()).isEqualTo("WARNING");
+                    assertThat(alert.getTargetActuator()).isEqualTo("VALVE");
+                    assertThat(alert.getTargetState()).isEqualTo("ON");
                 });
     }
 
     @Test
-    void slightlyDrySoilIsOnlyMediumSeverity() {
+    void raisesCriticalSoilMoistureAlertWhenInManualMode() {
+        alertEvaluationService.raiseManualModeAlert(device);
         alertEvaluationService.evaluate(device, reading(null, "28.0"));
 
         assertThat(alertRepository.findAll())
+                .filteredOn(a -> "SOIL_MOISTURE_LOW".equals(a.getType()))
                 .singleElement()
                 .extracting(Alert::getSeverity)
-                .isEqualTo("MEDIUM");
+                .isEqualTo("CRITICAL");
     }
 
     @Test
@@ -172,22 +183,20 @@ class AlertEvaluationServiceTest extends TestDatabase {
     }
 
     @Test
-    void acknowledgedAlertStillBlocksDuplicates() {
-        alertEvaluationService.evaluate(device, reading("42.0", null));
-        Alert alert = alertRepository.findAll().get(0);
-        alert.setStatus("ACKNOWLEDGED");
-        alertRepository.save(alert);
+    void manualModeAlertOnlyRaisedOnce() {
+        alertEvaluationService.raiseManualModeAlert(device);
+        alertEvaluationService.raiseManualModeAlert(device);
 
-        alertEvaluationService.evaluate(device, reading("43.0", null));
-
-        assertThat(alertRepository.findAll()).hasSize(1);
+        assertThat(alertRepository.findAll())
+                .filteredOn(a -> "MANUAL_MODE".equals(a.getType()))
+                .hasSize(1);
     }
 
     @Test
-    void aNewAlertIsRaisedAfterThePreviousOneWasResolved() {
+    void aNewAlertIsRaisedAfterThePreviousOneWasProcessed() {
         alertEvaluationService.evaluate(device, reading("42.0", null));
         Alert alert = alertRepository.findAll().get(0);
-        alert.setStatus("RESOLVED");
+        alert.setStatus("PROCESSED");
         alertRepository.save(alert);
 
         alertEvaluationService.evaluate(device, reading("43.0", null));

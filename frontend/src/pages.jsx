@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   Bell,
@@ -44,7 +44,7 @@ import {
 } from 'lucide-react';
 import { apiRequest, getStoredSession } from './api.js';
 import { fileToAvatarDataUrl, getPhone, setAvatar, setPhone, useAvatar } from './avatar.js';
-import { hasRole, roleLabel, usePermission, Can } from './permissions.jsx';
+import { hasRole, roleLabel, usePermission, Can, showToast } from './permissions.jsx';
 
 const refreshMs = 10000;
 const accountRoles = [
@@ -167,29 +167,70 @@ function TableFrame({ loading, empty, children }) {
 
 const alertTabs = [
   { value: 'ALL', label: 'Tất cả' },
+  { value: 'OPEN', label: 'Chờ xử lý' },
   { value: 'CRITICAL', label: 'Nghiêm trọng' },
-  { value: 'HIGH', label: 'Cảnh báo' },
-  { value: 'RESOLVED', label: 'Đã giải quyết' },
+  { value: 'WARNING', label: 'Cảnh báo' },
+  { value: 'PROCESSED', label: 'Đã xử lý' },
+  { value: 'CANCELLED', label: 'Đã hủy' },
+  { value: 'EXPIRED', label: 'Đã hết hạn' },
 ];
 
 const severityMeta = {
   CRITICAL: { label: 'Nghiêm trọng', className: 'al-pill-crit' },
+  WARNING: { label: 'Cảnh báo', className: 'al-pill-warn' },
   HIGH: { label: 'Cảnh báo', className: 'al-pill-warn' },
   MEDIUM: { label: 'Cảnh báo', className: 'al-pill-warn' },
-  LOW: { label: 'Thông tin', className: 'al-pill-info' },
+  LOW: { label: 'Cảnh báo', className: 'al-pill-warn' },
 };
 
 const alertStatusMeta = {
-  OPEN: { label: 'Chưa xử lý', className: 'al-pill-crit' },
-  ACKNOWLEDGED: { label: 'Đang theo dõi', className: 'al-pill-warn' },
+  OPEN: { label: 'Đang chờ xử lý', className: 'al-pill-crit' },
+  PROCESSED: { label: 'Đã xử lý', className: 'al-pill-ok' },
+  CANCELLED: { label: 'Đã hủy', className: 'al-pill-neutral' },
+  EXPIRED: { label: 'Đã hết hạn', className: 'al-pill-expired' },
   RESOLVED: { label: 'Đã xử lý', className: 'al-pill-ok' },
+  ACKNOWLEDGED: { label: 'Đang chờ xử lý', className: 'al-pill-crit' },
 };
 
 function tabQuery(tab) {
+  if (tab === 'OPEN') return { status: 'OPEN' };
+  if (tab === 'PROCESSED') return { status: 'PROCESSED' };
+  if (tab === 'CANCELLED') return { status: 'CANCELLED' };
+  if (tab === 'EXPIRED') return { status: 'EXPIRED' };
   if (tab === 'CRITICAL') return { severity: 'CRITICAL' };
-  if (tab === 'HIGH') return { severity: 'HIGH' };
-  if (tab === 'RESOLVED') return { status: 'RESOLVED' };
+  if (tab === 'WARNING') return { severity: 'WARNING' };
   return {};
+}
+
+export function getAlertActionLabel(alert) {
+  const actuator = String(alert?.targetActuator || '').toUpperCase();
+  const state = String(alert?.targetState || 'ON').toUpperCase();
+
+  if (actuator === 'MODE' || actuator === 'AUTO' || alert?.type === 'MANUAL_MODE') {
+    return 'Bật AUTO';
+  }
+
+  const actMap = {
+    FAN: 'quạt',
+    VALVE: 'van tưới',
+    PUMP: 'van tưới',
+    LIGHT: 'đèn',
+    LAMP: 'đèn',
+  };
+
+  const name = actMap[actuator] || (actuator ? actuator.toLowerCase() : null);
+  if (name) {
+    const verb = state === 'OFF' ? 'Tắt' : 'Bật';
+    return `${verb} ${name}`;
+  }
+
+  if (alert?.type === 'TEMPERATURE_HIGH' || alert?.message?.includes('Nhiệt độ')) {
+    return 'Bật quạt';
+  }
+  if (alert?.type === 'SOIL_MOISTURE_LOW' || alert?.message?.includes('Độ ẩm đất')) {
+    return 'Bật van tưới';
+  }
+  return 'Thực thi';
 }
 
 function buildAlertQuery(params, page, size) {
@@ -241,6 +282,7 @@ export function timeAgo(value) {
 const ALERT_PAGE_SIZE = 7;
 
 export function AlertsPage() {
+  const navigate = useNavigate();
   const { canManageAlerts } = usePermission();
   const [tab, setTab] = useState('ALL');
   const [search, setSearch] = useState('');
@@ -249,33 +291,41 @@ export function AlertsPage() {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
-  const [counts, setCounts] = useState({ open: 0, ack: 0, critical: 0, high: 0, resolved: 0, resolvedToday: 0, all: 0 });
+  const [counts, setCounts] = useState({ open: 0, critical: 0, warning: 0, processed: 0, cancelled: 0, expired: 0, all: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyAlertId, setBusyAlertId] = useState(null);
 
-  async function handleAcknowledge(alertId) {
-    setBusyAlertId(alertId);
+  async function handleExecuteAction(alert) {
+    setBusyAlertId(alert.id);
     try {
-      await apiRequest(`/api/alerts/${alertId}/acknowledge`, { method: 'POST' });
+      const res = await apiRequest(`/api/alerts/${alert.id}/execute-action`, { method: 'POST' });
       setReloadKey((key) => key + 1);
+
+      if (res?.alreadyInState) {
+        showToast('info', res.message || 'Thiết bị đã ở trạng thái yêu cầu.');
+      } else {
+        showToast('success', res?.message || 'Đã thực thi hành động trên thiết bị.');
+        navigate('/devices', { state: { highlightDeviceId: alert.deviceId || res?.deviceId } });
+      }
     } catch (err) {
       if (err.status !== 403) {
-        setError(err.message || 'Không thể xác nhận cảnh báo.');
+        setError(err.message || 'Không thể thực thi hành động.');
       }
     } finally {
       setBusyAlertId(null);
     }
   }
 
-  async function handleResolve(alertId) {
+  async function handleCancel(alertId) {
     setBusyAlertId(alertId);
     try {
-      await apiRequest(`/api/alerts/${alertId}/resolve`, { method: 'POST' });
+      await apiRequest(`/api/alerts/${alertId}/cancel`, { method: 'POST' });
+      showToast('info', 'Đã hủy cảnh báo.');
       setReloadKey((key) => key + 1);
     } catch (err) {
       if (err.status !== 403) {
-        setError(err.message || 'Không thể đóng cảnh báo.');
+        setError(err.message || 'Không thể hủy cảnh báo.');
       }
     } finally {
       setBusyAlertId(null);
@@ -296,33 +346,28 @@ export function AlertsPage() {
       if (showLoader) setLoading(true);
       try {
         const tableParams = { ...tabQuery(tab), ...(debouncedSearch ? { search: debouncedSearch } : {}) };
-        const [table, open, ack, critical, high, resolved, all, recentResolved] = await Promise.all([
+        const [table, open, critical, warning, processed, cancelled, expired, all] = await Promise.all([
           apiRequest(buildAlertQuery(tableParams, page, ALERT_PAGE_SIZE)),
           fetchAlertTotal({ status: 'OPEN' }),
-          fetchAlertTotal({ status: 'ACKNOWLEDGED' }),
           fetchAlertTotal({ severity: 'CRITICAL' }),
-          fetchAlertTotal({ severity: 'HIGH' }),
-          fetchAlertTotal({ status: 'RESOLVED' }),
+          fetchAlertTotal({ severity: 'WARNING' }),
+          fetchAlertTotal({ status: 'PROCESSED' }),
+          fetchAlertTotal({ status: 'CANCELLED' }),
+          fetchAlertTotal({ status: 'EXPIRED' }),
           fetchAlertTotal({}),
-          apiRequest(buildAlertQuery({ status: 'RESOLVED' }, 0, 200)),
         ]);
         if (!active) return;
         const content = Array.isArray(table) ? table : table.content || [];
         setRows(content);
         setTotal(Array.isArray(table) ? content.length : table.totalElements ?? 0);
-        const resolvedRows = Array.isArray(recentResolved) ? recentResolved : recentResolved.content || [];
-        const today = new Date().toDateString();
         setCounts({
           open,
-          ack,
           critical,
-          high,
-          resolved,
+          warning,
+          processed,
+          cancelled,
+          expired,
           all,
-          resolvedToday: resolvedRows.filter((alert) => {
-            const stamp = alert.resolvedAt || alert.createdAt;
-            return stamp && new Date(stamp).toDateString() === today;
-          }).length,
         });
         setError('');
       } catch (requestError) {
@@ -344,9 +389,12 @@ export function AlertsPage() {
   const from = total === 0 ? 0 : safePage * ALERT_PAGE_SIZE + 1;
   const to = Math.min((safePage + 1) * ALERT_PAGE_SIZE, total);
   const tabCount = (value) => {
+    if (value === 'OPEN') return counts.open;
     if (value === 'CRITICAL') return counts.critical;
-    if (value === 'HIGH') return counts.high;
-    if (value === 'RESOLVED') return counts.resolved;
+    if (value === 'WARNING') return counts.warning;
+    if (value === 'PROCESSED') return counts.processed;
+    if (value === 'CANCELLED') return counts.cancelled;
+    if (value === 'EXPIRED') return counts.expired;
     return counts.all;
   };
 
@@ -364,19 +412,19 @@ export function AlertsPage() {
 
     <section className="al-summary" aria-label="Tổng quan cảnh báo">
       <article className="al-card">
-        <div className="al-card-top"><span>Cảnh báo mở</span><span className="al-pill al-pill-crit">Cần xử lý</span></div>
+        <div className="al-card-top"><span>Chờ xử lý</span><span className="al-pill al-pill-crit">Cần thao tác</span></div>
         <div className="al-number al-num-red">{String(counts.open).padStart(2, '0')}</div>
-        <div className="al-note">{counts.open} sự cố vượt ngưỡng cần kiểm tra</div>
+        <div className="al-note">{counts.open} sự cố đang chờ xử lý</div>
       </article>
       <article className="al-card">
-        <div className="al-card-top"><span>Đang xử lý</span><span className="al-pill al-pill-warn">Theo dõi</span></div>
-        <div className="al-number al-num-orange">{String(counts.ack).padStart(2, '0')}</div>
-        <div className="al-note">{counts.ack} kỹ thuật viên đang thao tác</div>
+        <div className="al-card-top"><span>Nghiêm trọng</span><span className="al-pill al-pill-crit">Khẩn cấp</span></div>
+        <div className="al-number al-num-orange">{String(counts.critical).padStart(2, '0')}</div>
+        <div className="al-note">{counts.critical} sự cố mức độ nghiêm trọng</div>
       </article>
       <article className="al-card">
-        <div className="al-card-top"><span>Đã xử lý hôm nay</span><span className="al-pill al-pill-ok">Hoàn thành</span></div>
-        <div className="al-number al-num-green">{String(counts.resolvedToday).padStart(2, '0')}</div>
-        <div className="al-note">Các ngưỡng đã trở lại an toàn</div>
+        <div className="al-card-top"><span>Đã xử lý</span><span className="al-pill al-pill-ok">Hoàn thành</span></div>
+        <div className="al-number al-num-green">{String(counts.processed).padStart(2, '0')}</div>
+        <div className="al-note">{counts.processed} sự cố đã khắc phục thành công</div>
       </article>
     </section>
 
@@ -410,7 +458,7 @@ export function AlertsPage() {
                 const sev = severityMeta[alert.severity] || { label: alert.severity || 'Thông tin', className: 'al-pill-info' };
                 const st = alertStatusMeta[alert.status] || { label: alert.status, className: 'al-pill-info' };
                 const reading = parseAlertReading(alert);
-                const valueTone = alert.status === 'RESOLVED' ? 'al-val-ok' : alert.severity === 'CRITICAL' ? 'al-val-bad' : 'al-val-warn';
+                const valueTone = alert.status === 'PROCESSED' ? 'al-val-ok' : alert.severity === 'CRITICAL' ? 'al-val-bad' : 'al-val-warn';
                 return (
                   <tr key={alert.id}>
                     <td><span className={`al-pill ${sev.className}`}>{sev.label}</span></td>
@@ -430,36 +478,42 @@ export function AlertsPage() {
                     <td><span className="al-time">{timeAgo(alert.createdAt)}</span></td>
                     {canManageAlerts && (
                       <td>
-                        {alert.status !== 'RESOLVED' ? (
+                        {alert.status === 'OPEN' ? (
                           <div className="row-actions" style={{ gap: '6px' }}>
-                            {alert.status === 'OPEN' && (
-                              <button
-                                type="button"
-                                className="button button-secondary button-small"
-                                style={{ padding: '4px 8px', fontSize: '11px', whiteSpace: 'nowrap' }}
-                                onClick={() => handleAcknowledge(alert.id)}
-                                disabled={busyAlertId === alert.id}
-                                title="Xác nhận tiếp nhận cảnh báo"
-                              >
-                                {busyAlertId === alert.id ? <LoaderCircle size={13} className="spin" /> : <Check size={13} />} Xác nhận
-                              </button>
-                            )}
                             <button
                               type="button"
                               className="button button-primary button-small"
-                              style={{ padding: '4px 8px', fontSize: '11px', whiteSpace: 'nowrap' }}
-                              onClick={() => handleResolve(alert.id)}
+                              style={{ padding: '4px 10px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                              onClick={() => handleExecuteAction(alert)}
                               disabled={busyAlertId === alert.id}
-                              title="Đóng / Xử lý xong cảnh báo"
+                              title={`Thực thi hành động: ${getAlertActionLabel(alert)}`}
                             >
-                              {busyAlertId === alert.id ? <LoaderCircle size={13} className="spin" /> : <Check size={13} />} Đóng
+                              {busyAlertId === alert.id ? <LoaderCircle size={13} className="spin" /> : <Play size={13} />} {getAlertActionLabel(alert)}
+                            </button>
+                            <button
+                              type="button"
+                              className="button button-secondary button-small"
+                              style={{ padding: '4px 10px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                              onClick={() => handleCancel(alert.id)}
+                              disabled={busyAlertId === alert.id}
+                              title="Hủy cảnh báo này"
+                            >
+                              {busyAlertId === alert.id ? <LoaderCircle size={13} className="spin" /> : <X size={13} />} Hủy
                             </button>
                           </div>
-                        ) : (
+                        ) : alert.status === 'PROCESSED' ? (
                           <span style={{ color: '#16a34a', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                             <Check size={12} /> Đã xử lý
                           </span>
-                        )}
+                        ) : alert.status === 'CANCELLED' ? (
+                          <span style={{ color: '#64748b', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <X size={12} /> Đã hủy
+                          </span>
+                        ) : alert.status === 'EXPIRED' ? (
+                          <span style={{ color: '#94a3b8', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <Clock3 size={12} /> Đã hết hạn
+                          </span>
+                        ) : null}
                       </td>
                     )}
                   </tr>

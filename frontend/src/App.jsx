@@ -984,6 +984,8 @@ function loadActuatorState() {
 
 function Devices() {
   const { canControl, canManageDevices, canManageSchedules, isViewer } = usePermission();
+  const location = useLocation();
+  const [highlightedId, setHighlightedId] = useState(() => location.state?.highlightDeviceId || null);
   const [backendDevices, setBackendDevices] = useState([]);
   const [latest, setLatest] = useState(null);
   const [query, setQuery] = useState('');
@@ -1022,6 +1024,14 @@ function Devices() {
     if (liveStatus?.tempThreshold != null) setThresholdTemp(liveStatus.tempThreshold);
     if (liveStatus?.soilThreshold != null) setThresholdSoil(liveStatus.soilThreshold);
   }, [liveStatus?.tempThreshold, liveStatus?.soilThreshold]);
+
+  useEffect(() => {
+    if (location.state?.highlightDeviceId) {
+      setHighlightedId(location.state.highlightDeviceId);
+      const timer = window.setTimeout(() => setHighlightedId(null), 4000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [location.state?.highlightDeviceId]);
 
   // ── Lịch bật/tắt đèn tự động ────────────────────────────────────────────
   const [lightSchedules, setLightSchedules] = useState([]);
@@ -1704,7 +1714,7 @@ function Devices() {
                   const Icon = item.icon;
                   const isSensor = item.kind === 'SENSOR';
                   return (
-                    <tr key={item.id}>
+                    <tr key={item.id} className={highlightedId ? 'device-row-highlight' : ''}>
                       <td>
                         <div className="dev-device-name">
                           <span className={`dev-device-icon ${item.iconTone}`}><Icon size={16} /></span>

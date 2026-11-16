@@ -305,6 +305,10 @@ CREATE TABLE IF NOT EXISTS alerts (
 
     status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
 
+    target_actuator VARCHAR(30),
+
+    target_state VARCHAR(30),
+
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     acknowledged_at TIMESTAMP WITH TIME ZONE,
@@ -314,6 +318,10 @@ CREATE TABLE IF NOT EXISTS alerts (
     resolved_at TIMESTAMP WITH TIME ZONE,
 
     resolved_by BIGINT,
+
+    processed_at TIMESTAMP WITH TIME ZONE,
+
+    processed_by BIGINT,
 
     CONSTRAINT fk_alert_device
         FOREIGN KEY (device_id)
@@ -330,13 +338,19 @@ CREATE TABLE IF NOT EXISTS alerts (
         REFERENCES users(id)
         ON DELETE SET NULL,
 
+    CONSTRAINT fk_alert_processed_user
+        FOREIGN KEY (processed_by)
+        REFERENCES users(id)
+        ON DELETE SET NULL,
+
     CONSTRAINT chk_alert_severity
         CHECK (
             severity IN (
+                'WARNING',
+                'CRITICAL',
                 'LOW',
                 'MEDIUM',
-                'HIGH',
-                'CRITICAL'
+                'HIGH'
             )
         ),
 
@@ -344,6 +358,9 @@ CREATE TABLE IF NOT EXISTS alerts (
         CHECK (
             status IN (
                 'OPEN',
+                'PROCESSED',
+                'CANCELLED',
+                'EXPIRED',
                 'ACKNOWLEDGED',
                 'RESOLVED'
             )

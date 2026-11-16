@@ -959,6 +959,18 @@ tbody tr:hover { background: #fbfcfa; }
 .al-pill-warn { color: #b26a1b; background: #fdeed9; }
 .al-pill-ok { color: #0e6a4e; background: #d9f5e5; }
 .al-pill-info { color: #4a7396; background: #e6f0fc; }
+.al-pill-neutral { color: #475569; background: #f1f5f9; }
+.al-pill-expired { color: #94a3b8; background: #f8fafc; border: 1px dashed #cbd5e1; }
+.device-row-highlight {
+  animation: pulse-device-row 3s ease-in-out;
+  outline: 2px solid #16a34a !important;
+  outline-offset: -1px;
+}
+@keyframes pulse-device-row {
+  0% { background-color: #dcfce7; }
+  50% { background-color: #bbf7d0; }
+  100% { background-color: transparent; }
+}
 .al-number { margin-top: 8px;  font-size: 26px; font-weight: 700; line-height: 1.1; }
 .al-num-red { color: #c0392b; }
 .al-num-orange { color: #c07a1e; }

@@ -33,6 +33,12 @@ public class Alert {
     @Builder.Default
     private String status = "OPEN";
 
+    @Column(name = "target_actuator", length = 30)
+    private String targetActuator;
+
+    @Column(name = "target_state", length = 30)
+    private String targetState;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private ZonedDateTime createdAt;
@@ -50,4 +56,19 @@ public class Alert {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "resolved_by")
     private User resolvedBy;
+
+    @Column(name = "processed_at")
+    private ZonedDateTime processedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "processed_by")
+    private User processedBy;
+
+    public ZonedDateTime getEffectiveProcessedAt() {
+        return processedAt != null ? processedAt : resolvedAt;
+    }
+
+    public User getEffectiveProcessedBy() {
+        return processedBy != null ? processedBy : resolvedBy;
+    }
 }

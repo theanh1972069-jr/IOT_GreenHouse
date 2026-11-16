@@ -42,6 +42,7 @@ public class DeviceLiveService {
     private final DeviceConfigurationRepository configurationRepository;
     private final TelemetryRepository telemetryRepository;
     private final AlertRepository alertRepository;
+    private final AlertEvaluationService alertEvaluationService;
     private final MqttPublisherService mqttPublisherService;
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
@@ -262,6 +263,11 @@ public class DeviceLiveService {
      */
     public DeviceLiveStatus controlActuator(String deviceId, String actuatorId, boolean turnOn,
                                            User actor, HttpServletRequest httpRequest) {
+        return controlActuator(deviceId, actuatorId, turnOn, actor, httpRequest, null);
+    }
+
+    public DeviceLiveStatus controlActuator(String deviceId, String actuatorId, boolean turnOn,
+                                           User actor, HttpServletRequest httpRequest, Long executingAlertId) {
         if ("lamp".equalsIgnoreCase(actuatorId)) {
             actuatorId = "light";
         } else if ("pump".equalsIgnoreCase(actuatorId)) {
@@ -278,6 +284,9 @@ public class DeviceLiveService {
                         .orElseGet(() -> DeviceConfiguration.builder().device(device).build());
                 config.setAutoWatering(false);
                 configurationRepository.save(config);
+                if (executingAlertId == null) {
+                    alertEvaluationService.raiseManualModeAlert(device);
+                }
             });
 
             List<ActuatorLiveView> stopped = new ArrayList<>();
@@ -305,6 +314,22 @@ public class DeviceLiveService {
                     .orElseGet(() -> DeviceConfiguration.builder().device(device).build());
             config.setAutoWatering(false);
             configurationRepository.save(config);
+
+            if (turnOn) {
+                // Quy tắc 4: Khi một actuator được BẬT thành công,
+                // chuyển TOÀN BỘ cảnh báo còn đang OPEN trước đó của thiết bị thành EXPIRED.
+                if (executingAlertId != null) {
+                    alertRepository.expireOtherOpenAlerts(device.getId(), executingAlertId, ZonedDateTime.now());
+                } else {
+                    alertRepository.expireAllOpenAlerts(device.getId(), ZonedDateTime.now());
+                }
+            }
+
+            // Nếu người dùng thao tác trực tiếp bằng tay trên trang thiết bị:
+            // Tạo ngay cảnh báo MANUAL_MODE
+            if (executingAlertId == null) {
+                alertEvaluationService.raiseManualModeAlert(device);
+            }
         });
 
         updateActuatorState(status, actuatorId, turnOn);
@@ -336,6 +361,14 @@ public class DeviceLiveService {
                     .orElseGet(() -> DeviceConfiguration.builder().device(device).build());
             config.setAutoWatering(autoMode);
             configurationRepository.save(config);
+
+            if (autoMode) {
+                // Bật lại AUTO -> giải quyết cảnh báo MANUAL_MODE
+                alertEvaluationService.resolveManualModeAlert(device, actor);
+            } else {
+                // Chuyển sang MANUAL -> tạo cảnh báo MANUAL_MODE
+                alertEvaluationService.raiseManualModeAlert(device);
+            }
         });
 
         String topic = "greenhouse/" + deviceId + "/control";
