@@ -38,6 +38,7 @@ public class LightScheduleRestController {
     private final LightScheduleRepository lightScheduleRepository;
     private final DeviceRepository deviceRepository;
     private final AuditLogService auditLogService;
+    private final com.iot.greenhouse.service.LightScheduleService lightScheduleService;
 
     // ─── GET: danh sách lịch của thiết bị ───────────────────────────────────
 
@@ -85,6 +86,7 @@ public class LightScheduleRestController {
                             .build();
 
                     LightSchedule saved = lightScheduleRepository.save(schedule);
+                    try { lightScheduleService.evaluateSchedules(); } catch (Exception ignored) {}
                     auditLogService.record(actor, httpRequest, "LIGHT_SCHEDULE_CREATE", "Device", deviceId,
                             Map.of("label", saved.getLabel(),
                                     "turnOnTime", saved.getTurnOnTime().toString(),
@@ -120,6 +122,7 @@ public class LightScheduleRestController {
                     schedule.setUpdatedBy(actor);
 
                     LightSchedule saved = lightScheduleRepository.save(schedule);
+                    try { lightScheduleService.evaluateSchedules(); } catch (Exception ignored) {}
                     auditLogService.record(actor, httpRequest, "LIGHT_SCHEDULE_UPDATE", "Device", deviceId,
                             Map.of("id", id,
                                     "label", saved.getLabel(),
@@ -146,6 +149,7 @@ public class LightScheduleRestController {
                 .filter(s -> s.getDevice().getDeviceId().equals(deviceId))
                 .map(schedule -> {
                     lightScheduleRepository.delete(schedule);
+                    try { lightScheduleService.evaluateSchedules(); } catch (Exception ignored) {}
                     auditLogService.record(actor, httpRequest, "LIGHT_SCHEDULE_DELETE", "Device", deviceId,
                             Map.of("id", id, "label", schedule.getLabel()));
                     return ResponseEntity.ok(Map.of("message", "Đã xoá lịch chiếu sáng."));

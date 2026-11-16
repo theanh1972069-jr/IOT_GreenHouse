@@ -563,16 +563,9 @@ function Dashboard() {
   const hasTempHumi = Boolean(isDeviceOnline && (curTemp != null || curHumi != null));
   const hasSoil = Boolean(isDeviceOnline && curSoil != null);
 
-  const [busyActuator, setBusyActuator] = useState(null);
-  const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdTemp, setThresholdTemp] = useState(35.0);
   const [thresholdSoil, setThresholdSoil] = useState(30.0);
   const [lightSchedule, setLightSchedule] = useState({ onTime: '19:00', offTime: '07:00', id: null, enabled: true });
-  const [draftTemp, setDraftTemp] = useState(35.0);
-  const [draftSoil, setDraftSoil] = useState(30.0);
-  const [draftLightOn, setDraftLightOn] = useState('19:00');
-  const [draftLightOff, setDraftLightOff] = useState('07:00');
-  const [savingThreshold, setSavingThreshold] = useState(false);
 
   useEffect(() => {
     if (liveStatus?.tempThreshold != null) setThresholdTemp(liveStatus.tempThreshold);
@@ -597,118 +590,12 @@ function Dashboard() {
     };
   }, []);
 
-  function openThresholdModal() {
-    setDraftTemp(thresholdTemp);
-    setDraftSoil(thresholdSoil);
-    setDraftLightOn(lightSchedule.onTime || '19:00');
-    setDraftLightOff(lightSchedule.offTime || '07:00');
-    setShowThresholdModal(true);
-  }
-
-  async function handleSaveThresholds(e) {
-    if (e) e.preventDefault();
-    const devId = devices[0]?.deviceId || 'esp32-01';
-    setSavingThreshold(true);
-    try {
-      const updated = await apiRequest(`/api/devices/${encodeURIComponent(devId)}/thresholds`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          temperatureHigh: parseFloat(draftTemp),
-          soilMoistureLow: parseFloat(draftSoil),
-          autoMode: liveStatus?.autoMode ?? true,
-        }),
-      });
-      if (updated) {
-        setLiveStatus(updated);
-        setThresholdTemp(parseFloat(draftTemp));
-        setThresholdSoil(parseFloat(draftSoil));
-        window.dispatchEvent(new CustomEvent('flora:liveStatus-updated', { detail: updated }));
-        try { localStorage.setItem('flora:liveStatus', JSON.stringify(updated)); } catch {}
-      }
-
-      // Lưu lịch bật/tắt đèn chiếu sáng quang hợp lên server
-      if (draftLightOn && draftLightOff) {
-        const url = lightSchedule.id
-          ? `/api/devices/${encodeURIComponent(devId)}/light-schedules/${lightSchedule.id}`
-          : `/api/devices/${encodeURIComponent(devId)}/light-schedules`;
-        const method = lightSchedule.id ? 'PUT' : 'POST';
-        const res = await apiRequest(url, {
-          method,
-          body: JSON.stringify({
-            label: 'Lịch chiếu sáng quang hợp',
-            turnOnTime: draftLightOn,
-            turnOffTime: draftLightOff,
-            enabled: true,
-          }),
-        });
-        const savedId = res?.id || lightSchedule.id;
-        setLightSchedule({ onTime: draftLightOn, offTime: draftLightOff, id: savedId, enabled: true });
-      }
-
-      setShowThresholdModal(false);
-    } catch (err) {
-      console.error('Không thể lưu cấu hình:', err);
-    } finally {
-      setSavingThreshold(false);
-    }
-  }
-
-  async function toggleAutoMode(newAuto) {
-    const devId = devices[0]?.deviceId || 'esp32-01';
-    try {
-      const updated = await apiRequest(`/api/devices/${encodeURIComponent(devId)}/control`, {
-        method: 'POST',
-        body: JSON.stringify({ autoMode: newAuto }),
-      });
-      if (updated) {
-        setLiveStatus(updated);
-        window.dispatchEvent(new CustomEvent('flora:liveStatus-updated', { detail: updated }));
-        try { localStorage.setItem('flora:liveStatus', JSON.stringify(updated)); } catch {}
-      }
-    } catch (err) {
-      console.error('Lỗi đổi chế độ:', err);
-    }
-  }
-
   function getActuatorName(act) {
     if (!act) return '';
     if (act.id === 'valve') return 'Van tưới nước';
     if (act.id === 'fan') return 'Quạt thông gió';
     if (act.id === 'light') return 'Đèn quang hợp';
     return String(act.name || '').replace(/\s*\([^)]*\)$/, '').trim() || act.name;
-  }
-
-  async function handleToggle(actuatorId, newState) {
-    const devId = devices[0]?.deviceId || 'esp32-01';
-    const targetActuator = (actuatorId === 'lamp' || actuatorId === 'light') ? 'light' : (actuatorId === 'pump' || actuatorId === 'valve') ? 'valve' : actuatorId;
-    setBusyActuator(actuatorId);
-    setLiveStatus((current) => {
-      if (!current || !current.actuators) return current;
-      return {
-        ...current,
-        autoMode: false,
-        actuators: current.actuators.map((a) =>
-          a.id === targetActuator
-            ? { ...a, state: newState }
-            : a
-        ),
-      };
-    });
-    try {
-      const updated = await apiRequest(`/api/devices/${encodeURIComponent(devId)}/control`, {
-        method: 'POST',
-        body: JSON.stringify({ actuator: targetActuator, state: newState }),
-      });
-      if (updated) {
-        setLiveStatus(updated);
-        window.dispatchEvent(new CustomEvent('flora:liveStatus-updated', { detail: updated }));
-        try { localStorage.setItem('flora:liveStatus', JSON.stringify(updated)); } catch {}
-      }
-    } catch (err) {
-      console.error('Lỗi khi điều khiển thiết bị:', err);
-    } finally {
-      setBusyActuator(null);
-    }
   }
 
   return (
@@ -719,19 +606,22 @@ function Dashboard() {
         description="Theo dõi trạng thái thiết bị và điều kiện môi trường."
         actions={
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <button
-              className={`button ${liveStatus?.autoMode ? 'button-primary' : 'button-secondary'}`}
-              type="button"
-              onClick={() => toggleAutoMode(!liveStatus?.autoMode)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              title="Chuyển đổi giữa chế độ Tự động và Thủ công"
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: 600,
+                background: liveStatus?.autoMode ? '#dcfce7' : '#f1f5f9',
+                color: liveStatus?.autoMode ? '#15803d' : '#475569',
+              }}
             >
-              <SlidersHorizontal size={15} />
+              <SlidersHorizontal size={14} />
               {liveStatus?.autoMode ? 'Chế độ: Tự động' : 'Chế độ: Thủ công'}
-            </button>
-            <button className="button button-primary" type="button" onClick={openThresholdModal} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <Settings2 size={15} /> ⚙️ Chỉnh ngưỡng
-            </button>
+            </span>
             <button className="button button-secondary" onClick={() => loadDashboard()} disabled={loading}>
               <RefreshCw size={16} className={loading ? 'spin' : ''} /> Làm mới
             </button>
@@ -807,7 +697,7 @@ function Dashboard() {
           </small>
         </article>
 
-        {/* Ô 2: NGƯỠNG CẢNH BÁO (Nằm cùng hàng, sau cảm biến và trước thiết bị điều khiển. Chỉ rõ thiết bị lấy icon, ngưỡng vượt quá hay thấp hơn, nút cài đặt icon) */}
+        {/* Ô 2: NGƯỠNG CẢNH BÁO (Chỉ hiển thị - chỉnh ngưỡng tại trang Thiết bị) */}
         <article className="dashboard-top-card">
           <div>
             <div className="top-card-header">
@@ -817,15 +707,6 @@ function Dashboard() {
                   <SlidersHorizontal size={16} style={{ color: '#087b66' }} /> Ngưỡng cảnh báo
                 </h3>
               </div>
-              <button
-                type="button"
-                className="threshold-gear-btn"
-                title="Chỉnh ngưỡng kích hoạt tự động"
-                aria-label="Cài đặt ngưỡng"
-                onClick={openThresholdModal}
-              >
-                <Settings2 size={16} />
-              </button>
             </div>
 
             <div className="threshold-rule-list">
@@ -851,14 +732,14 @@ function Dashboard() {
                 </div>
               </div>
 
-              <div className="threshold-rule-item" onClick={openThresholdModal} style={{ cursor: 'pointer' }} title="Nhấn để tùy chỉnh lịch bật/tắt đèn trên web">
+              <div className="threshold-rule-item">
                 <div className="threshold-device-info">
                   <span className="rule-device-icon tone-yellow"><Lightbulb size={14} /></span>
                   <span className="rule-device-name">Đèn quang hợp</span>
                 </div>
                 <div className="threshold-condition">
                   <span className="rule-desc">Lịch tự động:</span>
-                  <span className="rule-badge rule-badge-warm" style={{ cursor: 'pointer' }}>
+                  <span className="rule-badge rule-badge-warm">
                     {lightSchedule.enabled !== false ? `${lightSchedule.onTime || '19:00'} - ${lightSchedule.offTime || '07:00'}` : 'Đã tắt lịch'}
                   </span>
                 </div>
@@ -870,7 +751,7 @@ function Dashboard() {
           </small>
         </article>
 
-        {/* Ô 3: THIẾT BỊ ĐIỀU KHIỂN (Nằm cùng hàng, sau ngưỡng cảnh báo, cho phép gạt luôn và không cần chữ biểu thị trạng thái) */}
+        {/* Ô 3: THIẾT BỊ ĐIỀU KHIỂN (Chế độ giám sát - không gạt bật/tắt trên Dashboard) */}
         <article className="dashboard-top-card">
           <div>
             <div className="top-card-header">
@@ -880,7 +761,7 @@ function Dashboard() {
                   <Cpu size={16} style={{ color: '#16a34a' }} /> Thiết bị điều khiển
                 </h3>
               </div>
-              <NavLink to="/devices" className="card-link-icon" title="Xem chi tiết tại trang Thiết bị">
+              <NavLink to="/devices" className="card-link-icon" title="Xem chi tiết và điều khiển tại trang Thiết bị">
                 <ArrowUpRight size={16} />
               </NavLink>
             </div>
@@ -898,17 +779,13 @@ function Dashboard() {
                       <span className="actuator-mini-name">{getActuatorName(act)}</span>
                     </div>
                     <div className="actuator-mini-right">
-                      <input
-                        type="checkbox"
-                        role="switch"
-                        aria-label={`Bật tắt ${getActuatorName(act)}`}
-                        checked={Boolean(isDeviceOnline && act.state)}
-                        disabled={!isDeviceOnline || busyActuator === act.id}
-                        onChange={(e) => handleToggle(act.id, e.target.checked)}
-                        title={!isDeviceOnline ? 'Thiết bị chưa kết nối' : 'Gạt công tắc để bật hoặc tắt'}
-                        style={{ cursor: isDeviceOnline ? 'pointer' : 'not-allowed' }}
-                      />
-                      {busyActuator === act.id && <LoaderCircle size={13} className="spin" style={{ color: '#087b66' }} />}
+                      <span
+                        className={`status-pill ${isOn ? 'status-online' : 'status-neutral'}`}
+                        style={{ fontSize: '11px', padding: '2px 8px' }}
+                      >
+                        <span />
+                        {isOn ? 'Đang bật' : 'Đang tắt'}
+                      </span>
                     </div>
                   </div>
                 );
@@ -920,207 +797,6 @@ function Dashboard() {
           </small>
         </article>
       </section>
-
-      {/* MODAL CÀI ĐẶT NGƯỠNG */}
-      {showThresholdModal && (
-        <div className="modal-overlay" onClick={() => setShowThresholdModal(false)}>
-          <div className="threshold-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="threshold-dialog-header">
-              <h3>Cấu hình ngưỡng kích hoạt tự động</h3>
-              <button type="button" onClick={() => setShowThresholdModal(false)} style={{ border: 0, background: 'transparent', cursor: 'pointer' }}>
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleSaveThresholds}>
-              <div className="threshold-dialog-body">
-                <p style={{ margin: 0, fontSize: 12, color: '#52665a' }}>
-                  Các giá trị ngưỡng dưới đây sẽ được lưu trữ và truyền trực tiếp xuống bộ vi điều khiển ESP32 qua giao thức MQTT để tự động bật/tắt Quạt, Van tưới và Đèn quang hợp.
-                </p>
-
-                <div className="threshold-form-group">
-                  <label>
-                    <span>Ngưỡng nhiệt độ bật quạt thông gió:</span>
-                    <strong>&gt; {draftTemp}°C</strong>
-                  </label>
-                  <div className="threshold-stepper-row">
-                    <div className="threshold-stepper-box">
-                      <button
-                        type="button"
-                        className="stepper-btn stepper-btn-minus"
-                        onClick={() => setDraftTemp((prev) => Math.max(15, Number((prev - 0.5).toFixed(1))))}
-                        title="Giảm 0.5°C"
-                        aria-label="Giảm 0.5°C"
-                      >
-                        <Minus size={15} />
-                      </button>
-                      <input
-                        type="number"
-                        className="threshold-val-input stepper-input"
-                        value={draftTemp}
-                        step="0.5"
-                        min="15"
-                        max="50"
-                        onChange={(e) => setDraftTemp(parseFloat(e.target.value) || 0)}
-                      />
-                      <span className="stepper-unit-badge">°C</span>
-                      <button
-                        type="button"
-                        className="stepper-btn stepper-btn-plus"
-                        onClick={() => setDraftTemp((prev) => Math.min(50, Number((prev + 0.5).toFixed(1))))}
-                        title="Tăng 0.5°C"
-                        aria-label="Tăng 0.5°C"
-                      >
-                        <Plus size={15} />
-                      </button>
-                    </div>
-
-                    <div className="threshold-slider-flex">
-                      <input
-                        type="range"
-                        min="15"
-                        max="50"
-                        step="0.5"
-                        value={draftTemp}
-                        onChange={(e) => setDraftTemp(parseFloat(e.target.value))}
-                      />
-                    </div>
-                  </div>
-                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi nhiệt độ &gt; ngưỡng này, hệ thống sẽ tự động bật quạt làm mát.</small>
-                </div>
-
-                <div className="threshold-form-group" style={{ marginTop: 12 }}>
-                  <label>
-                    <span>Ngưỡng độ ẩm đất bật van tưới:</span>
-                    <strong>&lt; {draftSoil}%</strong>
-                  </label>
-                  <div className="threshold-stepper-row">
-                    <div className="threshold-stepper-box">
-                      <button
-                        type="button"
-                        className="stepper-btn stepper-btn-minus"
-                        onClick={() => setDraftSoil((prev) => Math.max(10, prev - 1))}
-                        title="Giảm 1%"
-                        aria-label="Giảm 1%"
-                      >
-                        <Minus size={15} />
-                      </button>
-                      <input
-                        type="number"
-                        className="threshold-val-input stepper-input"
-                        value={draftSoil}
-                        step="1"
-                        min="10"
-                        max="80"
-                        onChange={(e) => setDraftSoil(parseInt(e.target.value, 10) || 0)}
-                      />
-                      <span className="stepper-unit-badge">%</span>
-                      <button
-                        type="button"
-                        className="stepper-btn stepper-btn-plus"
-                        onClick={() => setDraftSoil((prev) => Math.min(80, prev + 1))}
-                        title="Tăng 1%"
-                        aria-label="Tăng 1%"
-                      >
-                        <Plus size={15} />
-                      </button>
-                    </div>
-
-                    <div className="threshold-slider-flex">
-                      <input
-                        type="range"
-                        min="10"
-                        max="80"
-                        step="1"
-                        value={draftSoil}
-                        onChange={(e) => setDraftSoil(parseInt(e.target.value, 10))}
-                      />
-                    </div>
-                  </div>
-                  <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, hệ thống sẽ tự động mở van tưới cấp nước.</small>
-                </div>
-
-                <div className="threshold-form-group" style={{ marginTop: 14 }}>
-                  <label>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <Lightbulb size={15} style={{ color: '#d97706' }} /> Lịch bật/tắt đèn quang hợp tự động:
-                    </span>
-                    <strong style={{ color: '#b45309' }}>
-                      {draftLightOn || '19:00'} (Bật) ➔ {draftLightOff || '07:00'} (Tắt)
-                    </strong>
-                  </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
-                    <div>
-                      <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
-                        🌙 Giờ bật đèn (7h tối):
-                      </span>
-                      <input
-                        type="time"
-                        className="threshold-val-input"
-                        style={{ width: '100%', height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 600 }}
-                        value={draftLightOn}
-                        onChange={(e) => setDraftLightOn(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
-                        ☀️ Giờ tắt đèn (7h sáng):
-                      </span>
-                      <input
-                        type="time"
-                        className="threshold-val-input"
-                        style={{ width: '100%', height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 600 }}
-                        value={draftLightOff}
-                        onChange={(e) => setDraftLightOff(e.target.value)}
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '19:00' && draftLightOff === '07:00') ? '#fef3c7' : undefined }}
-                      onClick={() => { setDraftLightOn('19:00'); setDraftLightOff('07:00'); }}
-                    >
-                      🌙 19:00 - 07:00 (Mặc định: 7h tối bật, 7h sáng tắt)
-                    </button>
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '18:00' && draftLightOff === '06:00') ? '#fef3c7' : undefined }}
-                      onClick={() => { setDraftLightOn('18:00'); setDraftLightOff('06:00'); }}
-                    >
-                      18:00 - 06:00
-                    </button>
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '06:00' && draftLightOff === '18:00') ? '#fef3c7' : undefined }}
-                      onClick={() => { setDraftLightOn('06:00'); setDraftLightOff('18:00'); }}
-                    >
-                      ☀️ 06:00 - 18:00 (Ban ngày)
-                    </button>
-                  </div>
-                  <small style={{ color: '#7a8980', fontSize: 11, marginTop: 6, display: 'block' }}>
-                    Server tự động gửi lệnh MQTT bật đèn lúc <strong>{draftLightOn}</strong> và tắt lúc <strong>{draftLightOff}</strong> hàng ngày. Bạn có thể gạt công tắc thủ công bất kỳ lúc nào.
-                  </small>
-                </div>
-              </div>
-
-              <div className="threshold-dialog-footer">
-                <button type="button" className="button button-secondary" onClick={() => setShowThresholdModal(false)}>
-                  Hủy bỏ
-                </button>
-                <button type="submit" className="button button-primary" disabled={savingThreshold}>
-                  {savingThreshold ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
-                  {savingThreshold ? 'Đang lưu & áp dụng...' : 'Lưu & Áp dụng ngay'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* BIỂU ĐỒ REAL-TIME TELEMETRY STREAM (Bỏ cường độ ánh sáng, chỉ còn Nhiệt độ, Độ ẩm không khí, Độ ẩm đất) */}
       <TelemetryStream telemetry={telemetry} temperatureHigh={temperatureHigh} range={streamRange} onRangeChange={setStreamRange} />
@@ -1501,12 +1177,11 @@ function Devices() {
       ...(targetActuator === 'valve' ? { pump: newState, valve: newState } : {}),
     }));
 
-    // Optimistically update liveStatus so switch updates without lag and marks autoMode false
+    // Optimistically update liveStatus so switch updates without lag
     setLiveStatus((current) => {
       if (!current || !current.actuators) return current;
       return {
         ...current,
-        autoMode: false,
         actuators: current.actuators.map((a) =>
           a.id === targetActuator
             ? { ...a, state: newState }
@@ -1952,15 +1627,6 @@ function Devices() {
           >
             <Settings2 size={14} /> Cài đặt ngưỡng
           </button>
-          <button
-            type="button"
-            className="btn-config-threshold"
-            onClick={() => setShowSchedulePanel((v) => !v)}
-            title="Cài đặt lịch bật/tắt đèn tự động theo giờ"
-            style={{ background: showSchedulePanel ? '#16a34a' : undefined, color: showSchedulePanel ? '#fff' : undefined }}
-          >
-            <Lightbulb size={14} /> Lịch chiếu sáng
-          </button>
         </div>
         <span style={{ fontSize: '12px', color: '#64748b' }}>
           {online ? '⚡ ESP32 đã kết nối và sẵn sàng nhận lệnh điều khiển' : '⚠️ ESP32 đang ngoại tuyến'}
@@ -2057,133 +1723,6 @@ function Devices() {
           </div>
         </div>
       </section>
-
-      {/* PANEL LỊCH BẬT/TẮT ĐÈN QUANG HỢP */}
-      {showSchedulePanel && (
-        <section className="light-schedule-panel" aria-label="Lịch chiếu sáng tự động">
-          <div className="light-schedule-header">
-            <div>
-              <Lightbulb size={18} style={{ color: '#f59e0b', verticalAlign: 'middle', marginRight: 8 }} />
-              <strong>Lịch bật/tắt đèn quang hợp tự động</strong>
-              <span style={{ fontSize: 12, color: '#64748b', marginLeft: 10 }}>
-                Server tự động gửi lệnh MQTT đúng giờ đã cài đặt mỗi ngày
-              </span>
-            </div>
-            <button type="button" className="icon-button" onClick={() => setShowSchedulePanel(false)} aria-label="Đóng">
-              <X size={16} />
-            </button>
-          </div>
-
-          {scheduleError && (
-            <div className="notice notice-error" style={{ marginBottom: 10 }}>
-              <AlertTriangle size={15} /><span>{scheduleError}</span>
-            </div>
-          )}
-
-          {/* Form thêm / sửa lịch */}
-          <form className="light-schedule-form" onSubmit={handleSaveSchedule}>
-            <div className="light-schedule-form-row">
-              <label className="ls-field">
-                <span>Nhãn lịch</span>
-                <input
-                  type="text"
-                  placeholder="VD: Sáng sớm"
-                  maxLength={100}
-                  value={scheduleForm.label}
-                  onChange={(e) => setScheduleForm((f) => ({ ...f, label: e.target.value }))}
-                />
-              </label>
-              <label className="ls-field">
-                <span><Sun size={13} style={{ color: '#f59e0b' }} /> Giờ bật đèn</span>
-                <input
-                  type="time"
-                  required
-                  value={scheduleForm.turnOnTime}
-                  onChange={(e) => setScheduleForm((f) => ({ ...f, turnOnTime: e.target.value }))}
-                />
-              </label>
-              <label className="ls-field">
-                <span><Moon size={13} style={{ color: '#6366f1' }} /> Giờ tắt đèn</span>
-                <input
-                  type="time"
-                  required
-                  value={scheduleForm.turnOffTime}
-                  onChange={(e) => setScheduleForm((f) => ({ ...f, turnOffTime: e.target.value }))}
-                />
-              </label>
-              <label className="ls-field ls-field-toggle">
-                <span>Kích hoạt</span>
-                <input
-                  type="checkbox"
-                  role="switch"
-                  checked={scheduleForm.enabled}
-                  onChange={(e) => setScheduleForm((f) => ({ ...f, enabled: e.target.checked }))}
-                />
-              </label>
-              <div className="ls-field ls-actions">
-                <button type="submit" className="button button-primary" disabled={savingSchedule}>
-                  {savingSchedule ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
-                  {editingScheduleId ? ' Cập nhật' : ' Thêm lịch'}
-                </button>
-                {editingScheduleId && (
-                  <button
-                    type="button"
-                    className="button button-secondary"
-                    onClick={() => { setEditingScheduleId(null); setScheduleForm({ label: '', turnOnTime: '06:00', turnOffTime: '18:00', enabled: true }); }}
-                  >
-                    Huỷ
-                  </button>
-                )}
-              </div>
-            </div>
-          </form>
-
-          {/* Danh sách lịch */}
-          {lightSchedules.length === 0 ? (
-            <div className="light-schedule-empty">
-              <Lightbulb size={22} style={{ opacity: 0.4 }} />
-              <span>Chưa có lịch chiếu sáng nào. Tạo lịch đầu tiên bên trên.</span>
-            </div>
-          ) : (
-            <div className="light-schedule-list">
-              {lightSchedules.map((s) => (
-                <div key={s.id} className={`light-schedule-item ${s.enabled ? 'ls-enabled' : 'ls-disabled'}`}>
-                  <div className="ls-info">
-                    <Lightbulb size={15} style={{ color: s.enabled ? '#f59e0b' : '#94a3b8' }} />
-                    <strong>{s.label || 'Lịch chiếu sáng'}</strong>
-                    <span className="ls-time">
-                      <Sun size={12} /> {s.turnOnTime} → <Moon size={12} /> {s.turnOffTime}
-                    </span>
-                    <span className={`ls-badge ${s.enabled ? 'ls-badge-on' : 'ls-badge-off'}`}>
-                      {s.enabled ? 'Đang bật' : 'Tắt'}
-                    </span>
-                  </div>
-                  <div className="ls-row-actions">
-                    <input
-                      type="checkbox"
-                      role="switch"
-                      title={s.enabled ? 'Tắt lịch này' : 'Bật lịch này'}
-                      checked={s.enabled}
-                      onChange={() => handleToggleScheduleEnabled(s)}
-                    />
-                    <button type="button" className="icon-button" title="Sửa lịch" onClick={() => handleEditSchedule(s)}>
-                      <Pencil size={13} />
-                    </button>
-                    <button type="button" className="icon-button" title="Xoá lịch" onClick={() => handleDeleteSchedule(s.id)}
-                      style={{ color: '#ef4444' }}>
-                      <X size={13} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <p className="light-schedule-note">
-            💡 Lịch chiếu sáng được xử lý bởi server (Backend Spring Boot) — không phụ thuộc vào trình duyệt hay ESP32 đang online. Đèn sẽ được bật/tắt đúng giờ qua MQTT mỗi ngày.
-          </p>
-        </section>
-      )}
 
       {/* MODAL CÀI ĐẶT NGƯỠNG TRONG TRANG THIẾT BỊ */}
       {showThresholdModal && (
@@ -2340,34 +1879,8 @@ function Devices() {
                       />
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '19:00' && draftLightOff === '07:00') ? '#fef3c7' : undefined }}
-                      onClick={() => { setDraftLightOn('19:00'); setDraftLightOff('07:00'); }}
-                    >
-                      🌙 19:00 - 07:00 (Mặc định: 7h tối bật, 7h sáng tắt)
-                    </button>
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '18:00' && draftLightOff === '06:00') ? '#fef3c7' : undefined }}
-                      onClick={() => { setDraftLightOn('18:00'); setDraftLightOff('06:00'); }}
-                    >
-                      18:00 - 06:00
-                    </button>
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: (draftLightOn === '06:00' && draftLightOff === '18:00') ? '#fef3c7' : undefined }}
-                      onClick={() => { setDraftLightOn('06:00'); setDraftLightOff('18:00'); }}
-                    >
-                      ☀️ 06:00 - 18:00 (Ban ngày)
-                    </button>
-                  </div>
-                  <small style={{ color: '#7a8980', fontSize: 11, marginTop: 6, display: 'block' }}>
-                    Server tự động gửi lệnh MQTT bật đèn lúc <strong>{draftLightOn}</strong> và tắt lúc <strong>{draftLightOff}</strong> hàng ngày. Bạn có thể gạt công tắc thủ công bất kỳ lúc nào.
+                  <small style={{ color: '#7a8980', fontSize: 11, marginTop: 8, display: 'block' }}>
+                    Tự động bật đèn khi thời gian hiện tại nằm trong khoảng từ <strong>{draftLightOn}</strong> đến <strong>{draftLightOff}</strong> (hỗ trợ qua đêm), ngoài khoảng này đèn sẽ tự động tắt.
                   </small>
                 </div>
               </div>

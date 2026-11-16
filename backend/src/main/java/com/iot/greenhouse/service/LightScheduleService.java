@@ -27,8 +27,10 @@ public class LightScheduleService {
     private final DeviceLiveService deviceLiveService;
 
     /**
-     * Chạy mỗi phút đầu tiên của phút (giây 00).
-     * So sánh giờ:phút hiện tại với turnOnTime và turnOffTime của từng lịch.
+     * Chạy định kỳ mỗi phút.
+     * So sánh thời gian hiện tại với khoảng bật/tắt (hỗ trợ cả qua đêm):
+     * Nếu thời gian hiện tại nằm trong khoảng [onTime, offTime) thì bật đèn,
+     * ngược lại ngoài khoảng thì tắt đèn.
      */
     @Scheduled(cron = "0 * * * * *")
     @Transactional
@@ -43,16 +45,28 @@ public class LightScheduleService {
             LocalTime onTime  = schedule.getTurnOnTime().withSecond(0).withNano(0);
             LocalTime offTime = schedule.getTurnOffTime().withSecond(0).withNano(0);
 
-            if (now.equals(onTime)) {
-                log.info("[LightSchedule] Bật đèn thiết bị {} theo lịch \"{}\" lúc {}",
-                        deviceId, schedule.getLabel(), onTime);
-                mqttPublisherService.publish(topic, "{\"light\":1}");
-                updateLightState(deviceId, true);
-            } else if (now.equals(offTime)) {
-                log.info("[LightSchedule] Tắt đèn thiết bị {} theo lịch \"{}\" lúc {}",
-                        deviceId, schedule.getLabel(), offTime);
-                mqttPublisherService.publish(topic, "{\"light\":0}");
-                updateLightState(deviceId, false);
+            boolean shouldBeOn = isTimeInWindow(now, onTime, offTime);
+            var liveStatus = deviceLiveService.getOrCreateLiveStatus(deviceId);
+
+            // Khi ở chế độ tự động, kiểm tra và đồng bộ trạng thái đèn
+            if (liveStatus != null && !liveStatus.isAutoMode()) {
+                continue; // Trong chế độ thủ công, không can thiệp đè lên người dùng
+            }
+
+            boolean currentLightState = false;
+            if (liveStatus != null && liveStatus.getActuators() != null) {
+                currentLightState = liveStatus.getActuators().stream()
+                        .filter(a -> a.id().equalsIgnoreCase("light"))
+                        .findFirst()
+                        .map(com.iot.greenhouse.model.DeviceLiveStatus.ActuatorLiveView::state)
+                        .orElse(false);
+            }
+
+            if (shouldBeOn != currentLightState) {
+                log.info("[LightSchedule] Thiết bị {}: Giờ hiện tại {} -> {} đèn (bật: {}, tắt: {})",
+                        deviceId, now, shouldBeOn ? "BẬT" : "TẮT", onTime, offTime);
+                mqttPublisherService.publish(topic, String.format("{\"light\":%d}", shouldBeOn ? 1 : 0));
+                updateLightState(deviceId, shouldBeOn);
             }
         }
     }

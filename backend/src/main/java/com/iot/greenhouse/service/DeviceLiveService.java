@@ -281,26 +281,12 @@ public class DeviceLiveService {
             return status;
         }
 
-        boolean switchedFromAuto = false;
-        if (status.isAutoMode()) {
-            status.setAutoMode(false);
-            switchedFromAuto = true;
-            deviceRepository.findByDeviceId(deviceId).ifPresent(device -> {
-                DeviceConfiguration config = configurationRepository.findByDeviceId(device.getId())
-                        .orElseGet(() -> DeviceConfiguration.builder().device(device).build());
-                config.setAutoWatering(false);
-                configurationRepository.save(config);
-            });
-        }
-
         updateActuatorState(status, actuatorId, turnOn);
         status.recalculateTotalPower();
 
         int stateInt = turnOn ? 1 : 0;
         String topic = "greenhouse/" + deviceId + "/control";
-        String payload = switchedFromAuto
-                ? String.format("{\"auto\":0,\"%s\":%d}", actuatorId.toLowerCase(), stateInt)
-                : String.format("{\"%s\":%d}", actuatorId.toLowerCase(), stateInt);
+        String payload = String.format("{\"%s\":%d}", actuatorId.toLowerCase(), stateInt);
         mqttPublisherService.publish(topic, payload);
 
         if (actor != null) {
