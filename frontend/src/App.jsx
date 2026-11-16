@@ -484,8 +484,6 @@ function Dashboard() {
         if (Array.isArray(scheds) && scheds.length > 0) {
           const active = scheds.find((s) => s.enabled) || scheds[0];
           setLightSchedule({ onTime: active.turnOnTime, offTime: active.turnOffTime, id: active.id, enabled: active.enabled });
-          setDraftLightOn(active.turnOnTime);
-          setDraftLightOff(active.turnOffTime);
         }
       } else {
         setTelemetry([]);
