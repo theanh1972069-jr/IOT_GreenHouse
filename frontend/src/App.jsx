@@ -1177,11 +1177,12 @@ function Devices() {
       ...(targetActuator === 'valve' ? { pump: newState, valve: newState } : {}),
     }));
 
-    // Optimistically update liveStatus so switch updates without lag
+    // Tự động chuyển hệ thống sang chế độ Thủ công khi người dùng gạt công tắc thiết bị
     setLiveStatus((current) => {
       if (!current || !current.actuators) return current;
       return {
         ...current,
+        autoMode: false,
         actuators: current.actuators.map((a) =>
           a.id === targetActuator
             ? { ...a, state: newState }
