@@ -1852,87 +1852,84 @@ function Devices() {
                       {draftLightOn || '19:00'} (Bật) ➔ {draftLightOff || '07:00'} (Tắt)
                     </strong>
                   </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 10 }}>
-                    {/* Giờ BẬT đèn (Định dạng 24 Giờ) */}
-                    <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>🌙 Giờ BẬT đèn (24h):</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', background: '#dbeafe', padding: '2px 6px', borderRadius: 4 }}>
-                          {draftLightOn}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <select
-                          aria-label="Chọn giờ bật đèn"
-                          value={(draftLightOn || '19:00').split(':')[0] || '19'}
-                          onChange={(e) => {
-                            const m = (draftLightOn || '19:00').split(':')[1] || '00';
-                            setDraftLightOn(`${e.target.value}:${m}`);
-                          }}
-                          style={{ flex: 1, height: 38, padding: '0 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 600, background: '#fff' }}
-                        >
-                          {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map((h) => {
-                            const num = parseInt(h, 10);
-                            const desc = num === 0 ? '12h đêm' : num < 12 ? `${num}h sáng` : num === 12 ? '12h trưa' : `${num - 12}h tối`;
-                            return <option key={h} value={h}>{h}:00 ({desc})</option>;
-                          })}
-                        </select>
-                        <span style={{ fontWeight: 700, color: '#64748b' }}>:</span>
-                        <select
-                          aria-label="Chọn phút bật đèn"
-                          value={(draftLightOn || '19:00').split(':')[1] || '00'}
-                          onChange={(e) => {
-                            const h = (draftLightOn || '19:00').split(':')[0] || '19';
-                            setDraftLightOn(`${h}:${e.target.value}`);
-                          }}
-                          style={{ width: 85, height: 38, padding: '0 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 600, background: '#fff' }}
-                        >
-                          {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map((m) => (
-                            <option key={m} value={m}>{m} phút</option>
-                          ))}
-                        </select>
-                      </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
+                    <div>
+                      <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                        🌙 Giờ bật đèn (24h):
+                      </span>
+                      <input
+                        type="text"
+                        list="light-on-presets"
+                        className="threshold-val-input"
+                        style={{ width: '100%', height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 600 }}
+                        placeholder="19:00"
+                        maxLength={5}
+                        value={draftLightOn}
+                        onChange={(e) => setDraftLightOn(e.target.value)}
+                        onBlur={() => {
+                          const val = (draftLightOn || '').trim();
+                          if (/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(val)) {
+                            const [h, m] = val.split(':');
+                            setDraftLightOn(`${h.padStart(2, '0')}:${m.padStart(2, '0')}`);
+                          } else if (/^\d{1,2}$/.test(val)) {
+                            const h = Math.min(23, Math.max(0, parseInt(val, 10)));
+                            setDraftLightOn(`${String(h).padStart(2, '0')}:00`);
+                          } else if (/^\d{3,4}$/.test(val)) {
+                            const h = Math.min(23, parseInt(val.slice(0, val.length - 2), 10));
+                            const m = Math.min(59, parseInt(val.slice(-2), 10));
+                            setDraftLightOn(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+                          }
+                        }}
+                        required
+                      />
+                      <datalist id="light-on-presets">
+                        <option value="18:00" />
+                        <option value="18:30" />
+                        <option value="19:00" />
+                        <option value="19:30" />
+                        <option value="20:00" />
+                        <option value="21:00" />
+                        <option value="22:00" />
+                      </datalist>
                     </div>
-
-                    {/* Giờ TẮT đèn (Định dạng 24 Giờ) */}
-                    <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>☀️ Giờ TẮT đèn (24h):</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#d97706', background: '#fef3c7', padding: '2px 6px', borderRadius: 4 }}>
-                          {draftLightOff}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <select
-                          aria-label="Chọn giờ tắt đèn"
-                          value={(draftLightOff || '07:00').split(':')[0] || '07'}
-                          onChange={(e) => {
-                            const m = (draftLightOff || '07:00').split(':')[1] || '00';
-                            setDraftLightOff(`${e.target.value}:${m}`);
-                          }}
-                          style={{ flex: 1, height: 38, padding: '0 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 600, background: '#fff' }}
-                        >
-                          {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map((h) => {
-                            const num = parseInt(h, 10);
-                            const desc = num === 0 ? '12h đêm' : num < 12 ? `${num}h sáng` : num === 12 ? '12h trưa' : `${num - 12}h tối`;
-                            return <option key={h} value={h}>{h}:00 ({desc})</option>;
-                          })}
-                        </select>
-                        <span style={{ fontWeight: 700, color: '#64748b' }}>:</span>
-                        <select
-                          aria-label="Chọn phút tắt đèn"
-                          value={(draftLightOff || '07:00').split(':')[1] || '00'}
-                          onChange={(e) => {
-                            const h = (draftLightOff || '07:00').split(':')[0] || '07';
-                            setDraftLightOff(`${h}:${e.target.value}`);
-                          }}
-                          style={{ width: 85, height: 38, padding: '0 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 600, background: '#fff' }}
-                        >
-                          {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map((m) => (
-                            <option key={m} value={m}>{m} phút</option>
-                          ))}
-                        </select>
-                      </div>
+                    <div>
+                      <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                        ☀️ Giờ tắt đèn (24h):
+                      </span>
+                      <input
+                        type="text"
+                        list="light-off-presets"
+                        className="threshold-val-input"
+                        style={{ width: '100%', height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 600 }}
+                        placeholder="07:00"
+                        maxLength={5}
+                        value={draftLightOff}
+                        onChange={(e) => setDraftLightOff(e.target.value)}
+                        onBlur={() => {
+                          const val = (draftLightOff || '').trim();
+                          if (/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(val)) {
+                            const [h, m] = val.split(':');
+                            setDraftLightOff(`${h.padStart(2, '0')}:${m.padStart(2, '0')}`);
+                          } else if (/^\d{1,2}$/.test(val)) {
+                            const h = Math.min(23, Math.max(0, parseInt(val, 10)));
+                            setDraftLightOff(`${String(h).padStart(2, '0')}:00`);
+                          } else if (/^\d{3,4}$/.test(val)) {
+                            const h = Math.min(23, parseInt(val.slice(0, val.length - 2), 10));
+                            const m = Math.min(59, parseInt(val.slice(-2), 10));
+                            setDraftLightOff(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+                          }
+                        }}
+                        required
+                      />
+                      <datalist id="light-off-presets">
+                        <option value="05:00" />
+                        <option value="05:30" />
+                        <option value="06:00" />
+                        <option value="06:30" />
+                        <option value="07:00" />
+                        <option value="07:30" />
+                        <option value="08:00" />
+                      </datalist>
                     </div>
                   </div>
                   <small style={{ color: '#7a8980', fontSize: 11, marginTop: 8, display: 'block' }}>
