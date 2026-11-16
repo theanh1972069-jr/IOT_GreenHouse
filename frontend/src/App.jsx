@@ -985,6 +985,17 @@ function Devices() {
   const [draftLightOff, setDraftLightOff] = useState('07:00');
   const [savingThreshold, setSavingThreshold] = useState(false);
 
+  // Khóa cuộn trang màn hình phía dưới khi mở modal cấu hình ngưỡng
+  useEffect(() => {
+    if (showThresholdModal) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [showThresholdModal]);
+
   useEffect(() => {
     if (liveStatus?.tempThreshold != null) setThresholdTemp(liveStatus.tempThreshold);
     if (liveStatus?.soilThreshold != null) setThresholdSoil(liveStatus.soilThreshold);
@@ -1853,9 +1864,9 @@ function Devices() {
                       {draftLightOn || '19:00'} (Bật) ➔ {draftLightOff || '07:00'} (Tắt)
                     </strong>
                   </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8 }}>
+                  <div style={{ display: 'flex', gap: 20, marginTop: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                     <div>
-                      <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
                         🌙 Giờ bật đèn (24h):
                       </span>
                       <TimeWheelInput
@@ -1868,7 +1879,7 @@ function Devices() {
                       />
                     </div>
                     <div>
-                      <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
                         ☀️ Giờ tắt đèn (24h):
                       </span>
                       <TimeWheelInput

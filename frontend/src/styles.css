@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   font-family: 'DM Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   color: #17241f;
   background: #f2f5f0;
@@ -1480,6 +1480,7 @@ tbody tr:hover { background: #fbfcfa; }
   display: grid;
   place-items: center;
   padding: 16px;
+  overscroll-behavior: contain;
 }
 
 .threshold-dialog {
@@ -1491,6 +1492,7 @@ tbody tr:hover { background: #fbfcfa; }
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
   overflow: visible;
   position: relative;
+  overscroll-behavior: contain;
   animation: fadeInModal 0.2s ease-out;
 }
 
@@ -1613,6 +1615,7 @@ tbody tr:hover { background: #fbfcfa; }
 
 .threshold-slider-flex {
   flex: 1;
+  max-width: 200px;
   display: flex;
   align-items: center;
 }

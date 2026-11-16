@@ -48,6 +48,42 @@ function WheelColumn({ count, value, onChange, label }) {
     }
   }, [value, baseOffset, numVal, cycleHeight]);
 
+  // Lăn chuột (mouse wheel) trực tiếp trên cột để cuộn số mượt mà và chặn cuộn trang nền
+  useEffect(() => {
+    const el = colRef.current;
+    if (!el) return;
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+
+      const step = e.deltaY > 0 ? 1 : -1;
+      const currentST = el.scrollTop;
+      let currentIdx = Math.round(currentST / ITEM_HEIGHT);
+
+      // Nếu gần biên của 7 chu kỳ, tự động điều chỉnh về khối trung tâm để cuộn vô tận mượt mà
+      if (currentIdx < count * 2) {
+        currentIdx += count * 2;
+        el.scrollTop = currentIdx * ITEM_HEIGHT;
+      } else if (currentIdx > count * 5) {
+        currentIdx -= count * 2;
+        el.scrollTop = currentIdx * ITEM_HEIGHT;
+      }
+
+      const nextIdx = currentIdx + step;
+      el.scrollTo({ top: nextIdx * ITEM_HEIGHT, behavior: 'smooth' });
+
+      const actualVal = ((nextIdx % count) + count) % count;
+      const formatted = String(actualVal).padStart(2, '0');
+      onChange(formatted);
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [count, onChange]);
+
   // Xử lý cuộn, vòng lặp vô hạn và tự động snap
   const handleScroll = useCallback(() => {
     if (!colRef.current) return;
@@ -218,6 +254,7 @@ export function TimeWheelInput({
 }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef(null);
+  const boxRef = useRef(null);
 
   // Đóng popover khi bấm ra ngoài
   useEffect(() => {
@@ -235,6 +272,30 @@ export function TimeWheelInput({
       document.removeEventListener('touchstart', handleClickOutside);
     };
   }, [open]);
+
+  // Lăn con lăn chuột trực tiếp trên ô thời gian để chỉnh giờ/phút ngay lập tức (không cần kéo thanh trượt)
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+
+    const onBoxWheel = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const step = e.deltaY > 0 ? 5 : -5;
+      const [hStr, mStr] = (value || '00:00').split(':');
+      let h = parseInt(hStr, 10) || 0;
+      let m = parseInt(mStr, 10) || 0;
+      let total = h * 60 + m + step;
+      total = ((total % 1440) + 1440) % 1440;
+      const newH = String(Math.floor(total / 60)).padStart(2, '0');
+      const newM = String(total % 60).padStart(2, '0');
+      onChange(`${newH}:${newM}`);
+    };
+
+    el.addEventListener('wheel', onBoxWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onBoxWheel);
+  }, [value, onChange]);
 
   // Xử lý khi người dùng gõ phím trực tiếp vào ô input
   const handleInputChange = (e) => {
@@ -263,7 +324,12 @@ export function TimeWheelInput({
 
   return (
     <div className="time-wheel-input-wrapper" ref={wrapperRef}>
-      <div className="time-wheel-input-box">
+      <div
+        className="time-wheel-input-box"
+        ref={boxRef}
+        onClick={() => setOpen((prev) => !prev)}
+        title="Nhấp để mở cuộn bánh xe hoặc lăn chuột tại đây để đổi giờ"
+      >
         <span style={{ fontSize: 14 }}>{icon}</span>
         <input
           type="text"
@@ -273,14 +339,20 @@ export function TimeWheelInput({
           value={value}
           onChange={handleInputChange}
           onBlur={handleInputBlur}
-          onClick={() => setOpen(true)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen(true);
+          }}
           aria-label={label}
         />
         <button
           type="button"
           className="time-wheel-trigger-btn"
-          onClick={() => setOpen((prev) => !prev)}
-          title={open ? 'Đóng bánh xe cuộn' : 'Mở bánh xe cuộn chọn giờ (hướng lên)'}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((prev) => !prev);
+          }}
+          title={open ? 'Đóng bánh xe cuộn' : 'Mở bánh xe cuộn chọn giờ'}
           aria-expanded={open}
         >
           {open ? '▾' : '▴'}
@@ -289,7 +361,10 @@ export function TimeWheelInput({
 
       {/* Popover bánh xe cuộn xuất hiện hướng lên trên ô input */}
       {open && (
-        <div className={`time-wheel-popover ${align === 'right' ? 'popover-right' : ''}`}>
+        <div
+          className={`time-wheel-popover ${align === 'right' ? 'popover-right' : ''}`}
+          onWheel={(e) => e.stopPropagation()}
+        >
           <div className="time-wheel-popover-header">
             <span className="time-wheel-popover-title">{label}</span>
             <button type="button" className="time-wheel-done-btn" onClick={() => setOpen(false)}>

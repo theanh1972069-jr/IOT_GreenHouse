@@ -139,21 +139,29 @@
 
 .time-wheel-input-wrapper {
   position: relative;
-  width: 100%;
+  display: inline-block;
+  width: auto;
 }
 
 .time-wheel-input-box {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  width: 100%;
+  justify-content: space-between;
+  width: 135px;
   height: 38px;
-  padding: 0 10px;
+  padding: 0 8px 0 10px;
   background: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
-  gap: 6px;
+  gap: 4px;
   box-sizing: border-box;
   transition: border-color 0.15s, box-shadow 0.15s;
+  cursor: pointer;
+  user-select: none;
+}
+
+.time-wheel-input-box:hover {
+  border-color: #94a3b8;
 }
 
 .time-wheel-input-box:focus-within {
@@ -162,14 +170,16 @@
 }
 
 .time-wheel-input-text {
-  flex: 1;
+  width: 52px;
   border: none;
   outline: none;
   background: transparent;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: #1e293b;
   font-family: inherit;
+  text-align: center;
+  cursor: pointer;
 }
 
 .time-wheel-trigger-btn {
