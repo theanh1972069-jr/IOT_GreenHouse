@@ -414,6 +414,39 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     }
   }
 
+  // Nhận thời gian Epoch từ máy chủ để đồng bộ giờ tức thì (phòng khi NTP bị chặn)
+  int epochIdx = message.indexOf("\"epoch\":");
+  if (epochIdx >= 0) {
+    long long epochSec = atoll(message.substring(epochIdx + 8).c_str());
+    if (epochSec > 1700000000LL) {
+      struct timeval tv = { (time_t)epochSec, 0 };
+      settimeofday(&tv, NULL);
+      Serial.print(F("[ĐỒNG HỒ] Đã đồng bộ giờ từ máy chủ (Epoch): "));
+      Serial.println((long)epochSec);
+      stateChanged = true;
+    }
+  }
+
+  // Đánh giá ngay trạng thái đèn sau khi vừa nhận giờ mới nếu đang ở chế độ Tự động
+  if (stateChanged && autoControlMode) {
+    struct tm ti;
+    if (getLocalTime(&ti, 50)) {
+      int curMin = ti.tm_hour * 60 + ti.tm_min;
+      int onMin  = lightOnHour * 60 + lightOnMin;
+      int offMin = lightOffHour * 60 + lightOffMin;
+      bool shouldOn = false;
+      if (onMin < offMin) {
+        shouldOn = (curMin >= onMin && curMin < offMin);
+      } else if (onMin > offMin) {
+        shouldOn = (curMin >= onMin || curMin < offMin);
+      }
+      if (shouldOn != lightState) {
+        lightState = shouldOn;
+        setRelay(RELAY_LIGHT_PIN, lightState, shouldOn ? "Đèn quang hợp (IN3) [LỊCH MỚI - BẬT]" : "Đèn quang hợp (IN3) [LỊCH MỚI - TẮT]");
+      }
+    }
+  }
+
   // Phản hồi gửi cập nhật telemetry ngay lập tức để màn hình web cập nhật trạng thái
   if (stateChanged && mqtt.connected()) {
     publishTelemetry();
@@ -495,9 +528,10 @@ void measureSensorsAndAutoControl() {
       setRelay(RELAY_FAN_PIN, false, "Quạt làm mát (IN2) [TỰ ĐỘNG - Mát]");
     }
 
-    // Tự động bật/tắt đèn quang hợp theo khung giờ (bật trong suốt khoảng từ giờ bật đến giờ tắt)
+    // Tự động bật/tắt đèn quang hợp theo khung giờ (chạy độc lập trên ESP32 kể cả khi mất mạng)
     struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 50)) {
+    bool hasValidTime = getLocalTime(&timeinfo, 20);
+    if (hasValidTime) {
       int curMin = timeinfo.tm_hour * 60 + timeinfo.tm_min;
       int onMin  = lightOnHour * 60 + lightOnMin;
       int offMin = lightOffHour * 60 + lightOffMin;
@@ -518,11 +552,32 @@ void measureSensorsAndAutoControl() {
         lightState = false;
         setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [TỰ ĐỘNG - Ngoài khung giờ]");
       }
+    } else {
+      static uint32_t lastTimeWarn = 0;
+      if (millis() - lastTimeWarn >= 30000) {
+        lastTimeWarn = millis();
+        Serial.println(F("[ĐÈN QUANG HỢP] Đang chờ đồng bộ giờ (cần kết nối Wi-Fi 1 lần lấy NTP hoặc nhận giờ từ Web)..."));
+      }
     }
   }
 
   // 4. In ra Serial Monitor đồng bộ cùng nhịp gửi
   Serial.println(F("--------------------------------------------------------"));
+  struct tm ti;
+  if (getLocalTime(&ti, 0)) {
+    char timeStr[32];
+    snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d Ngày %02d/%02d/%04d",
+             ti.tm_hour, ti.tm_min, ti.tm_sec, ti.tm_mday, ti.tm_mon + 1, ti.tm_year + 1900);
+    Serial.print(F("[ĐỒNG HỒ ESP32] ")); Serial.print(timeStr);
+    Serial.print(F(" | Khung giờ đèn: "));
+    char schedStr[32];
+    snprintf(schedStr, sizeof(schedStr), "%02d:%02d -> %02d:%02d", lightOnHour, lightOnMin, lightOffHour, lightOffMin);
+    Serial.print(schedStr);
+    Serial.print(F(" | Tự động: "));
+    Serial.println(lightState ? F("ĐANG BẬT") : F("ĐANG TẮT"));
+  } else {
+    Serial.println(F("[ĐỒNG HỒ ESP32] Chưa đồng bộ thời gian (chờ kết nối NTP hoặc Web)"));
+  }
   if (dhtValid) {
     Serial.print(F("[DHT22]  Nhiệt độ: "));
     Serial.print(airTemp, 1);
@@ -637,6 +692,17 @@ void handleSerialCommands() {
       setRelay(RELAY_VALVE_PIN, valveState, "Van nước");
       setRelay(RELAY_FAN_PIN, fanState, "Quạt gió");
       setRelay(RELAY_LIGHT_PIN, lightState, "Đèn quang hợp");
+    } else if (cmdUpper == "TIME") {
+      struct tm ti;
+      if (getLocalTime(&ti, 50)) {
+        Serial.printf("[ĐỒNG HỒ ESP32] %02d:%02d:%02d Ngày %02d/%02d/%04d (Giờ VN GMT+7)\n",
+                      ti.tm_hour, ti.tm_min, ti.tm_sec, ti.tm_mday, ti.tm_mon + 1, ti.tm_year + 1900);
+      } else {
+        Serial.println(F("[ĐỒNG HỒ ESP32] Chưa đồng bộ thời gian thực."));
+      }
+    } else if (cmdUpper == "SCHEDULE") {
+      Serial.printf("[LỊCH ĐÈN FLASH NVS] Bật: %02d:%02d -> Tắt: %02d:%02d | Đèn hiện tại: %s\n",
+                    lightOnHour, lightOnMin, lightOffHour, lightOffMin, lightState ? "BẬT" : "TẮT");
     } else if (cmdUpper == "STATUS") {
       Serial.println(F("\n--- [TRẠNG THÁI PHẦN CỨNG TẤT CẢ CÁC CHÂN] ---"));
       Serial.print(F("Chế độ kích Relay : "));
@@ -742,22 +808,24 @@ void setup() {
   Serial.print(F(" -> ")); Serial.print(lightOffHour); Serial.print(F(":")); Serial.println(lightOffMin);
 
   // Cấu hình đồng bộ thời gian thực NTP (máy chủ Việt Nam, GMT+7)
-  configTime(7 * 3600, 0, "pool.ntp.org", "time.google.com");
+  configTime(7 * 3600, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
 
   // Bật chế độ tự động ghi nhớ và tự động kết nối lại Wi-Fi ngầm của phần cứng ESP32
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
 
-  // Đăng ký sự kiện Wi-Fi để tự động kết nối lại tức thì khi mất mạng
+  // Đăng ký sự kiện Wi-Fi: Khi mất mạng, đồng hồ RTC nội tại của ESP32 vẫn tiếp tục chạy
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-    Serial.println(F("\n[WI-FI] Bị ngắt kết nối! ESP32 đang tự động kết nối lại..."));
+    Serial.println(F("\n[WI-FI] Bị ngắt kết nối! Đồng hồ nội tại ESP32 vẫn chạy và tự động điều khiển đèn/bơm ngầm bình thường..."));
     WiFi.reconnect();
   }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
     Serial.print(F("\n[WI-FI] ĐÃ KẾT NỐI THÀNH CÔNG! IP của ESP32: "));
     Serial.println(WiFi.localIP());
+    // Khởi động đồng bộ NTP ngay khi có mạng Internet
+    configTime(7 * 3600, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
   }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
 
   // 1. Thử kết nối trực tiếp vào Wi-Fi đã lưu trong Flash (tránh bị kẹt trong AP captive portal)

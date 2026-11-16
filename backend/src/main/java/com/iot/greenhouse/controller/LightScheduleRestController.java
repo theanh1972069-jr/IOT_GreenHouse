@@ -88,7 +88,6 @@ public class LightScheduleRestController {
                     LightSchedule saved = lightScheduleRepository.save(schedule);
                     try {
                         lightScheduleService.syncDeviceLightScheduleToMqtt(deviceId);
-                        lightScheduleService.evaluateSchedules();
                     } catch (Exception ignored) {}
                     auditLogService.record(actor, httpRequest, "LIGHT_SCHEDULE_CREATE", "Device", deviceId,
                             Map.of("label", saved.getLabel(),
@@ -127,7 +126,6 @@ public class LightScheduleRestController {
                     LightSchedule saved = lightScheduleRepository.save(schedule);
                     try {
                         lightScheduleService.syncDeviceLightScheduleToMqtt(deviceId);
-                        lightScheduleService.evaluateSchedules();
                     } catch (Exception ignored) {}
                     auditLogService.record(actor, httpRequest, "LIGHT_SCHEDULE_UPDATE", "Device", deviceId,
                             Map.of("id", id,
@@ -155,7 +153,7 @@ public class LightScheduleRestController {
                 .filter(s -> s.getDevice().getDeviceId().equals(deviceId))
                 .map(schedule -> {
                     lightScheduleRepository.delete(schedule);
-                    try { lightScheduleService.evaluateSchedules(); } catch (Exception ignored) {}
+                    try { lightScheduleService.syncDeviceLightScheduleToMqtt(deviceId); } catch (Exception ignored) {}
                     auditLogService.record(actor, httpRequest, "LIGHT_SCHEDULE_DELETE", "Device", deviceId,
                             Map.of("id", id, "label", schedule.getLabel()));
                     return ResponseEntity.ok(Map.of("message", "Đã xoá lịch chiếu sáng."));
