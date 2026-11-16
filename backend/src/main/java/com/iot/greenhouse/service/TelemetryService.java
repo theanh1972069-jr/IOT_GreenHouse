@@ -39,7 +39,7 @@ public class TelemetryService {
         telemetryRepository.save(telemetryData);
 
         device.setLastSeen(ZonedDateTime.now());
-        if ("REGISTERED".equalsIgnoreCase(device.getStatus()) || "OFFLINE".equalsIgnoreCase(device.getStatus())) {
+        if (!"DECOMMISSIONED".equalsIgnoreCase(device.getStatus())) {
             device.setStatus("ACTIVE");
         }
         deviceRepository.save(device);
