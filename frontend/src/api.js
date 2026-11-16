@@ -57,6 +57,10 @@ export async function apiRequest(path, options = {}) {
     if (response.status === 401) {
       clearSession();
       window.dispatchEvent(new Event('flora:session-invalid'));
+    } else if (response.status === 403) {
+      window.dispatchEvent(new CustomEvent('flora:toast', {
+        detail: { kind: 'error', text: 'Bạn không có quyền thực hiện thao tác này' }
+      }));
     }
     const body = await response.text();
     let message = body;
@@ -64,7 +68,9 @@ export async function apiRequest(path, options = {}) {
     if (typeof message === 'string' && message.trim().startsWith('<')) {
       message = `Yêu cầu thất bại (${response.status})`;
     }
-    throw new Error(message || `Yêu cầu thất bại (${response.status})`);
+    const err = new Error(message || `Yêu cầu thất bại (${response.status})`);
+    err.status = response.status;
+    throw err;
   }
 
   return response.status === 204 ? null : response.json();

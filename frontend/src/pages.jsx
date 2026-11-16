@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
-  BellRing,
   Bell,
   Check,
   CircleAlert,
@@ -35,7 +34,6 @@ import {
   SlidersHorizontal,
   Sprout,
   Sun,
-  Timer,
   Thermometer,
   UserRound,
   UsersRound,
@@ -45,7 +43,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { apiRequest, getStoredSession } from './api.js';
-import { fileToAvatarDataUrl, getPhone, roleLabel, setAvatar, setPhone, useAvatar } from './avatar.js';
+import { fileToAvatarDataUrl, getPhone, setAvatar, setPhone, useAvatar } from './avatar.js';
+import { hasRole, roleLabel, usePermission, Can } from './permissions.jsx';
 
 const refreshMs = 10000;
 const accountRoles = [
@@ -242,6 +241,7 @@ export function timeAgo(value) {
 const ALERT_PAGE_SIZE = 7;
 
 export function AlertsPage() {
+  const { canManageAlerts } = usePermission();
   const [tab, setTab] = useState('ALL');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -252,6 +252,35 @@ export function AlertsPage() {
   const [counts, setCounts] = useState({ open: 0, ack: 0, critical: 0, high: 0, resolved: 0, resolvedToday: 0, all: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [busyAlertId, setBusyAlertId] = useState(null);
+
+  async function handleAcknowledge(alertId) {
+    setBusyAlertId(alertId);
+    try {
+      await apiRequest(`/api/alerts/${alertId}/acknowledge`, { method: 'POST' });
+      setReloadKey((key) => key + 1);
+    } catch (err) {
+      if (err.status !== 403) {
+        setError(err.message || 'Không thể xác nhận cảnh báo.');
+      }
+    } finally {
+      setBusyAlertId(null);
+    }
+  }
+
+  async function handleResolve(alertId) {
+    setBusyAlertId(alertId);
+    try {
+      await apiRequest(`/api/alerts/${alertId}/resolve`, { method: 'POST' });
+      setReloadKey((key) => key + 1);
+    } catch (err) {
+      if (err.status !== 403) {
+        setError(err.message || 'Không thể đóng cảnh báo.');
+      }
+    } finally {
+      setBusyAlertId(null);
+    }
+  }
 
   // Debounce so typing does not fire a request per keystroke.
   useEffect(() => {
@@ -366,7 +395,16 @@ export function AlertsPage() {
       {loading ? <div className="table-state"><LoaderCircle className="spin" size={21} /> Đang tải cảnh báo...</div> : !rows.length ? <div className="table-state"><Bell size={22} /><span>Không có cảnh báo phù hợp.</span></div> : (
         <div className="table-scroll al-table-scroll">
           <table className="al-table">
-            <thead><tr><th>MỨC ĐỘ</th><th>CẢNH BÁO &amp; VỊ TRÍ</th><th>GIÁ TRỊ VI PHẠM / NGƯỠNG</th><th>TRẠNG THÁI</th><th>THỜI GIAN</th></tr></thead>
+            <thead>
+              <tr>
+                <th>MỨC ĐỘ</th>
+                <th>CẢNH BÁO &amp; VỊ TRÍ</th>
+                <th>GIÁ TRỊ VI PHẠM / NGƯỠNG</th>
+                <th>TRẠNG THÁI</th>
+                <th>THỜI GIAN</th>
+                {canManageAlerts && <th>THAO TÁC</th>}
+              </tr>
+            </thead>
             <tbody>
               {rows.map((alert) => {
                 const sev = severityMeta[alert.severity] || { label: alert.severity || 'Thông tin', className: 'al-pill-info' };
@@ -390,6 +428,40 @@ export function AlertsPage() {
                     </td>
                     <td><span className={`al-pill ${st.className}`}>{st.label}</span></td>
                     <td><span className="al-time">{timeAgo(alert.createdAt)}</span></td>
+                    {canManageAlerts && (
+                      <td>
+                        {alert.status !== 'RESOLVED' ? (
+                          <div className="row-actions" style={{ gap: '6px' }}>
+                            {alert.status === 'OPEN' && (
+                              <button
+                                type="button"
+                                className="button button-secondary button-small"
+                                style={{ padding: '4px 8px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                                onClick={() => handleAcknowledge(alert.id)}
+                                disabled={busyAlertId === alert.id}
+                                title="Xác nhận tiếp nhận cảnh báo"
+                              >
+                                {busyAlertId === alert.id ? <LoaderCircle size={13} className="spin" /> : <Check size={13} />} Xác nhận
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="button button-primary button-small"
+                              style={{ padding: '4px 8px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                              onClick={() => handleResolve(alert.id)}
+                              disabled={busyAlertId === alert.id}
+                              title="Đóng / Xử lý xong cảnh báo"
+                            >
+                              {busyAlertId === alert.id ? <LoaderCircle size={13} className="spin" /> : <Check size={13} />} Đóng
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ color: '#16a34a', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <Check size={12} /> Đã xử lý
+                          </span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -444,6 +516,7 @@ function hardwareStageIndex(status) {
 const STALE_AFTER_MS = 5 * 60 * 1000;
 
 export function DeviceLifecyclePage() {
+  const { canManageDevices } = usePermission();
   const { data, loading, error, refresh } = useApiCollection('/api/devices');
   const [selectedId, setSelectedId] = useState('');
   const [telemetry, setTelemetry] = useState([]);
@@ -588,41 +661,43 @@ export function DeviceLifecyclePage() {
         <article className="lc-card">
           <div className="lc-card-kicker"><span>PHIÊN BẢN FIRMWARE</span><Cpu size={15} /></div>
           <div className="lc-fw-row"><strong>{firmwareCurrent || '—'}</strong>{firmwareIsLatest && <span className="lc-badge lc-badge-done">MỚI NHẤT</span>}{firmwareHasUpdate && <span className="lc-badge lc-badge-warn">CÓ BẢN MỚI {firmwareLatest}</span>}</div>
-          <button className="lc-btn-primary" type="button" disabled title="Backend chưa hỗ trợ cập nhật OTA"><RefreshCw size={14} /> Cập nhật</button>
         </article>
 
         <article className="lc-card">
           <div className="lc-card-kicker"><span>KẾT NỐI &amp; TÍN HIỆU</span><Wifi size={15} /></div>
           <div className="lc-conn"><i className={linkFresh ? 'lc-dot-online' : 'lc-dot-offline'} /><strong>{linkFresh ? 'Trực tuyến • Ổn định' : 'Ngoại tuyến'}</strong></div>
           <div className="lc-conn-note">{latest?.timestamp ? `Bản tin mới nhất: ${formatDate(latest.timestamp)}` : selected.lastSeen ? `Hoạt động cuối: ${formatDate(selected.lastSeen)}` : 'Chưa nhận telemetry'}</div>
-          <button
-            className="lc-btn-ghost"
-            type="button"
-            disabled={busy === 'MAINTENANCE' || busy === 'ACTIVE' || retired}
-            title={retired ? 'Thiết bị đã kết thúc vòng đời' : inMaintenance ? 'Đưa thiết bị trở lại hoạt động' : 'Chuyển thiết bị sang chế độ bảo trì'}
-            onClick={() => changeStatus(inMaintenance ? 'ACTIVE' : 'MAINTENANCE')}
-          >
-            <Wrench size={14} /> {busy === 'MAINTENANCE' || busy === 'ACTIVE' ? 'Đang gửi...' : inMaintenance ? 'Kết thúc bảo trì' : 'Chế độ bảo trì'}
-          </button>
+          {canManageDevices && (
+            <button
+              className="lc-btn-ghost"
+              type="button"
+              disabled={busy === 'MAINTENANCE' || busy === 'ACTIVE' || retired}
+              title={retired ? 'Thiết bị đã kết thúc vòng đời' : inMaintenance ? 'Đưa thiết bị trở lại hoạt động' : 'Chuyển thiết bị sang chế độ bảo trì'}
+              onClick={() => changeStatus(inMaintenance ? 'ACTIVE' : 'MAINTENANCE')}
+            >
+              <Wrench size={14} /> {busy === 'MAINTENANCE' || busy === 'ACTIVE' ? 'Đang gửi...' : inMaintenance ? 'Kết thúc bảo trì' : 'Chế độ bảo trì'}
+            </button>
+          )}
         </article>
 
-        <article className="lc-card">
-          <div className="lc-card-kicker"><span>THAO TÁC</span><Settings2 size={15} /></div>
-          <div className="lc-actions-label">Điều khiển phần cứng</div>
-          <div className="lc-actions-row">
-            <button className="lc-btn-ghost" type="button" disabled title="Cần giao thức lệnh MQTT, backend chưa khả dụng"><RotateCcw size={14} /> Khởi động lại (Restart)</button>
-            <button
-              className="lc-btn-danger"
-              type="button"
-              disabled={busy === 'DECOMMISSIONED' || retired}
-              title={retired ? 'Thiết bị đã kết thúc vòng đời' : 'Ngừng sử dụng thiết bị này'}
-              onClick={() => changeStatus('DECOMMISSIONED', `Ngừng sử dụng "${selected.name || selected.deviceId}"?`)}
-            >
-              <CircleX size={14} /> {busy === 'DECOMMISSIONED' ? 'Đang gửi...' : 'Ngừng sử dụng'}
-            </button>
-          </div>
-          {retired && <div className="lc-conn-note">Thiết bị đã kết thúc vòng đời.</div>}
-        </article>
+        {canManageDevices && (
+          <article className="lc-card">
+            <div className="lc-card-kicker"><span>THAO TÁC</span><Settings2 size={15} /></div>
+            <div className="lc-actions-label">Điều khiển phần cứng</div>
+            <div className="lc-actions-row">
+              <button
+                className="lc-btn-danger"
+                type="button"
+                disabled={busy === 'DECOMMISSIONED' || retired}
+                title={retired ? 'Thiết bị đã kết thúc vòng đời' : 'Ngừng sử dụng thiết bị này'}
+                onClick={() => changeStatus('DECOMMISSIONED', `Ngừng sử dụng "${selected.name || selected.deviceId}"?`)}
+              >
+                <CircleX size={14} /> {busy === 'DECOMMISSIONED' ? 'Đang gửi...' : 'Ngừng sử dụng'}
+              </button>
+            </div>
+            {retired && <div className="lc-conn-note">Thiết bị đã kết thúc vòng đời.</div>}
+          </article>
+        )}
       </section>
     </>}
   </>;
@@ -719,7 +794,7 @@ export function UsersPage() {
     <ErrorNotice>{error}</ErrorNotice>
     <section className="table-panel"><div className="table-toolbar filter-toolbar"><SearchBox value={query} onChange={setQuery} placeholder="Tìm theo tên, email hoặc vai trò" /><label className="filter-select"><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">Mọi trạng thái</option><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option><option value="LOCKED">LOCKED</option></select></label><span className="toolbar-count">{meta.totalElements} tài khoản</span></div>
       <TableFrame loading={loading} empty={data.length ? null : 'Chưa có tài khoản phù hợp.'}><thead><tr><th>TÀI KHOẢN</th><th>EMAIL</th><th>VAI TRÒ</th><th>TRẠNG THÁI</th><th>NGÀY TẠO</th></tr></thead><tbody>{data.map((user) => {
-        const isAdmin = user.roles?.some((role) => String(role).replace(/^ROLE_/i, '').toUpperCase() === 'ADMIN');
+        const isAdmin = hasRole(user, 'ADMIN');
         const primaryRole = user.roles?.[0];
         const presence = userPresenceMeta(user);
         const isMe = (sessionUser?.userId != null && user.id === sessionUser.userId)
@@ -971,87 +1046,6 @@ export function AuditLogsPage() {
         </div>
       </div>
     </section>
-  </>;
-}
-
-export function SettingsPage() {
-  const defaults = {
-    greenhouseName: 'Smart Greenhouse Unit 01',
-    timezone: 'Asia/Ho_Chi_Minh',
-    refreshSeconds: '5',
-    temperatureUnit: 'C',
-    themeMode: 'light',
-    autoReconnect: true,
-    dashboardNotifications: true,
-    temperatureAlerts: true,
-    nodeAlerts: true,
-  };
-  const [settings, setSettings] = useState(() => {
-    try {
-      return { ...defaults, ...JSON.parse(localStorage.getItem('flora_settings') || '{}') };
-    } catch {
-      return defaults;
-    }
-  });
-  const [systemStatus, setSystemStatus] = useState(null);
-  const [statusError, setStatusError] = useState(false);
-
-  useEffect(() => {
-    try { localStorage.setItem('flora_settings', JSON.stringify(settings)); } catch {}
-  }, [settings]);
-
-  useEffect(() => {
-    apiRequest('/api/system/status')
-      .then(setSystemStatus)
-      .catch(() => setStatusError(true));
-  }, []);
-
-  function updateSetting(name, value) {
-    setSettings((current) => ({ ...current, [name]: value }));
-    if (name === 'themeMode') document.documentElement.dataset.theme = value;
-  }
-
-  function ToggleRow({ name, title, description }) {
-    return <label className="preference-row">
-      <span className="preference-copy"><strong>{title}</strong><small>{description}</small></span>
-      <input className="switch-input" type="checkbox" checked={settings[name]} onChange={(event) => updateSetting(name, event.target.checked)} />
-    </label>;
-  }
-
-  return <>
-    <ModuleHeading eyebrow="QUẢN TRỊ / HỆ THỐNG" title="Cài đặt" description="Thông tin nhà kính và tùy chọn vận hành." />
-    <div className="preferences-page">
-      <section className="preference-section" aria-labelledby="general-settings-title">
-        <div className="preference-heading"><span className="preference-icon"><Settings2 size={18} /></span><div><h2 id="general-settings-title">Cài đặt chung</h2><p>Thông tin nhận diện và đơn vị hiển thị</p></div></div>
-        <div className="preference-body">
-          <label className="preference-field preference-field-full"><span>Tên nhà kính</span><input className="preference-control" value={settings.greenhouseName} onChange={(event) => updateSetting('greenhouseName', event.target.value)} /></label>
-          <div className="preference-field-grid">
-            <label className="preference-field"><span>Múi giờ vận hành</span><select className="preference-control" value={settings.timezone} onChange={(event) => updateSetting('timezone', event.target.value)}><option value="Asia/Ho_Chi_Minh">UTC+07:00 (Hà Nội, TP.HCM)</option><option value="Asia/Bangkok">UTC+07:00 (Bangkok)</option><option value="Asia/Tokyo">UTC+09:00 (Tokyo)</option><option value="UTC">UTC+00:00 (UTC)</option></select></label>
-            <label className="preference-field"><span>Tần suất cập nhật dữ liệu</span><span className="preference-select-wrap"><select className="preference-control" value={settings.refreshSeconds} onChange={(event) => updateSetting('refreshSeconds', event.target.value)}><option value="5">5 giây (Thời gian thực)</option><option value="10">10 giây</option><option value="30">30 giây</option><option value="60">1 phút</option></select><Timer size={15} /></span></label>
-          </div>
-          <div className="theme-setting"><span className="unit-copy"><strong>Chế độ giao diện</strong><small>Chọn giao diện sáng hoặc tối cho toàn ứng dụng</small></span><div className="theme-options" role="group" aria-label="Chế độ giao diện"><button type="button" className={settings.themeMode === 'light' ? 'theme-option-active' : ''} aria-pressed={settings.themeMode === 'light'} onClick={() => updateSetting('themeMode', 'light')}><Sun size={14} /> Sáng</button><button type="button" className={settings.themeMode === 'dark' ? 'theme-option-active' : ''} aria-pressed={settings.themeMode === 'dark'} onClick={() => updateSetting('themeMode', 'dark')}><Moon size={14} /> Tối</button></div></div>
-          <div className="unit-setting"><span className="unit-copy"><strong>Đơn vị nhiệt độ</strong><small>Áp dụng hiển thị trên toàn bộ biểu đồ và chỉ số sensor</small></span><div className="unit-switch" role="group" aria-label="Đơn vị nhiệt độ"><button type="button" className={settings.temperatureUnit === 'C' ? 'unit-active' : ''} aria-pressed={settings.temperatureUnit === 'C'} onClick={() => updateSetting('temperatureUnit', 'C')}>°C</button><button type="button" className={settings.temperatureUnit === 'F' ? 'unit-active' : ''} aria-pressed={settings.temperatureUnit === 'F'} onClick={() => updateSetting('temperatureUnit', 'F')}>°F</button></div></div>
-        </div>
-      </section>
-
-      <section className="preference-section" aria-labelledby="connection-settings-title">
-        <div className="preference-heading"><span className="preference-icon"><Wifi size={18} /></span><div><h2 id="connection-settings-title">Kết nối &amp; MQTT</h2><p>Thông số truyền thông dữ liệu đám mây</p></div></div>
-        <div className="preference-body">
-          <div className="connection-status"><span className={`connection-indicator ${systemStatus?.mqttEnabled ? 'is-enabled' : ''}`} /><div className="connection-copy"><strong>Trạng thái MQTT</strong><small>{statusError ? 'Không thể tải trạng thái từ máy chủ' : systemStatus?.mqttEnabled ? 'Dịch vụ MQTT đã được bật trên máy chủ' : systemStatus ? 'Dịch vụ MQTT chưa được bật' : 'Đang kiểm tra trạng thái...'}</small></div><span className={`connection-badge ${systemStatus?.mqttEnabled ? 'badge-enabled' : ''}`}>{statusError ? 'KHÔNG RÕ' : systemStatus?.mqttEnabled ? 'ĐÃ BẬT' : systemStatus ? 'ĐÃ TẮT' : 'ĐANG TẢI'}</span></div>
-          <div className="broker-field"><label htmlFor="mqtt-broker">Máy chủ MQTT (Broker Host)</label><div className="broker-value"><span id="mqtt-broker">Được quản lý bởi máy chủ</span><LockKeyhole size={15} aria-label="Chỉ đọc" /></div></div>
-          <ToggleRow name="autoReconnect" title="Tự động kết nối lại khi mất mạng" description="Tự khởi tạo phiên kết nối socket nếu bị ngắt quãng" />
-        </div>
-      </section>
-
-      <section className="preference-section" aria-labelledby="alert-settings-title">
-        <div className="preference-heading"><span className="preference-icon"><BellRing size={18} /></span><div><h2 id="alert-settings-title">Thông báo &amp; Cảnh báo</h2><p>Thiết lập bộ lọc và kích hoạt cảnh báo thông minh</p></div></div>
-        <div className="preference-body preference-body-compact">
-          <ToggleRow name="dashboardNotifications" title="Nhận cảnh báo trực tiếp trên Web Dashboard" description="Hiển thị thông báo tức thời trên thanh công cụ" />
-          <ToggleRow name="temperatureAlerts" title="Cảnh báo nhiệt độ & độ ẩm vượt ngưỡng" description="Báo động ngay khi nhiệt độ > 34°C hoặc ẩm rễ < 45%" />
-          <ToggleRow name="nodeAlerts" title="Cảnh báo mất kết nối Node cảm biến" description="Phát hiện và báo động khi node không phản hồi quá 30 giây" />
-        </div>
-      </section>
-    </div>
   </>;
 }
 

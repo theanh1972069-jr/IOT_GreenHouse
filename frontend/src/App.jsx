@@ -6,12 +6,21 @@ import {
   DeviceLifecyclePage,
   InviteUserPage,
   ProfilePage,
-  SettingsPage,
   UsersPage,
   timeAgo,
 } from './pages.jsx';
 import { apiRequest, clearSession, getStoredSession, saveSession } from './api.js';
-import { roleLabel, useAvatar } from './avatar.js';
+import { useAvatar } from './avatar.js';
+import {
+  Can,
+  PermissionContext,
+  ToastContainer,
+  hasAnyRole,
+  hasRole,
+  roleLabel,
+  showToast,
+  usePermission,
+} from './permissions.jsx';
 import { TimeWheelInput } from './TimeWheelPicker.jsx';
 import {
   Activity,
@@ -40,6 +49,7 @@ import {
   Minus,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Play,
   Plus,
   Power,
@@ -51,6 +61,7 @@ import {
   Sprout,
   Sun,
   Thermometer,
+  Trash2,
   UserRound,
   UsersRound,
   Waves,
@@ -66,15 +77,14 @@ const navigation = [
     items: [
       { label: 'Thiết bị', path: '/devices', icon: Cpu },
       { label: 'Cảnh báo', path: '/alerts', icon: Bell },
-      { label: 'Vòng đời thiết bị', path: '/device-lifecycle', icon: Sprout },
+      { label: 'Vòng đời thiết bị', path: '/device-lifecycle', icon: Sprout, requiredRoles: ['ADMIN'] },
     ],
   },
   {
     title: 'Quản trị',
     items: [
-      { label: 'Người dùng', path: '/users', icon: UsersRound, adminOnly: true },
-      { label: 'Nhật ký hệ thống', path: '/audit-logs', icon: FileClock, adminOnly: true },
-      { label: 'Cài đặt', path: '/settings', icon: Settings2 },
+      { label: 'Người dùng', path: '/users', icon: UsersRound, requiredRoles: ['ADMIN'] },
+      { label: 'Nhật ký hệ thống', path: '/audit-logs', icon: FileClock, requiredRoles: ['ADMIN'] },
     ],
   },
 ];
@@ -84,7 +94,6 @@ const pageTitles = {
   '/device-lifecycle': ['Vòng đời thiết bị', 'Theo dõi trạng thái triển khai và bảo trì node.'],
   '/users': ['Người dùng', 'Quản lý tài khoản và quyền truy cập hệ thống.'],
   '/audit-logs': ['Nhật ký hệ thống', 'Lịch sử hoạt động và thay đổi cấu hình.'],
-  '/settings': ['Cài đặt', 'Cấu hình vận hành cho hệ thống nhà kính.'],
   '/my-profile': ['Hồ sơ của tôi', 'Thông tin tài khoản đang đăng nhập.'],
   '/invite-user': ['Tạo tài khoản', 'Cấp quyền truy cập cho thành viên trong hệ thống.'],
 };
@@ -187,15 +196,20 @@ function LoginPage({ onLogin }) {
   );
 }
 
-function hasRole(user, requiredRole) {
-  return user?.roles?.some((role) => String(role).replace(/^ROLE_/i, '').toUpperCase() === requiredRole.toUpperCase());
-}
+function ProtectedRoute({ currentUser, requiredRoles, requiredRole, children }) {
+  const allowedRoles = requiredRoles || (requiredRole ? (Array.isArray(requiredRole) ? requiredRole : [requiredRole]) : null);
+  const isAllowed = !currentUser || !allowedRoles || hasAnyRole(currentUser, allowedRoles);
 
-function ProtectedRoute({ currentUser, requiredRole, children }) {
+  useEffect(() => {
+    if (currentUser && !isAllowed) {
+      showToast('error', 'Bạn không có quyền truy cập chức năng này');
+    }
+  }, [currentUser, isAllowed]);
+
   if (!currentUser) {
     return <Navigate to="/login" replace />;
   }
-  if (requiredRole && !hasRole(currentUser, requiredRole)) {
+  if (!isAllowed) {
     return <Navigate to="/dashboard" replace />;
   }
   return children;
@@ -253,7 +267,7 @@ function TopbarExtras({ currentUser, onLogout }) {
 
   const displayName = currentUser.fullName || currentUser.username || 'U';
   const initials = displayName.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
-  const subline = currentUser.email || roleLabel(currentUser.roles?.[0]);
+  const subline = `${roleLabel(currentUser.roles?.[0])}${currentUser.email ? ` · ${currentUser.email}` : ''}`;
   const avatar = useAvatar(currentUser);
 
   return <>
@@ -298,7 +312,6 @@ function TopbarExtras({ currentUser, onLogout }) {
         <div className="dropdown-panel menu-panel" role="menu" aria-label="Menu tài khoản">
           <div className="menu-profile"><span className="avatar-mini">{avatar ? <img src={avatar} alt="" className="avatar-img" /> : initials}</span><span><strong>{displayName}</strong><small>{subline}</small></span></div>
           <NavLink to="/my-profile" onClick={() => setMenuOpen(false)}><UserRound size={15} /> Hồ sơ của tôi</NavLink>
-          <NavLink to="/settings" onClick={() => setMenuOpen(false)}><Settings2 size={15} /> Cài đặt</NavLink>
           <button type="button" onClick={onLogout}><LogOut size={15} /> Đăng xuất</button>
         </div>
       )}
@@ -365,72 +378,79 @@ function App() {
   }
 
   return (
-    <div className={`app-frame ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${sidebarOpen ? 'sidebar-drawer-open' : ''}`}>
-      {sidebarOpen && <button className="sidebar-scrim" aria-label="Đóng menu" onClick={() => setSidebarOpen(false)} />}
-      <aside id="main-sidebar" className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
-        <div className="brand-lockup">
-          {sidebarCollapsed ? (
-            <button className="brand-mark brand-mark-button" type="button" aria-label="Mở rộng thanh điều hướng" onClick={() => setSidebarCollapsed(false)}><Leaf className="brand-leaf-icon" size={19} strokeWidth={2.5} /><PanelLeftOpen className="brand-open-icon" size={19} strokeWidth={2} /></button>
-          ) : (
-            <div className="brand-mark"><Leaf size={19} strokeWidth={2.5} /></div>
-          )}
-          <div className="brand-copy"><div className="brand-name">FloraCore</div><div className="brand-caption">GREENHOUSE SYSTEMS</div></div>
-          <button className="icon-button sidebar-collapse" aria-label={sidebarCollapsed ? 'Mở rộng thanh điều hướng' : 'Thu gọn thanh điều hướng'} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}>{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
-        </div>
-        <div className="facility-switcher">
-          <span className="facility-avatar"><Sprout size={17} /></span>
-          <span className="facility-copy"><strong>Nhà kính chính</strong><small>Hydroponic facility</small></span>
-          <ChevronDown size={15} className="muted-icon" />
-        </div>
-        <nav className="side-navigation" aria-label="Điều hướng chính">
-          {navigation.map((group) => (
-            group.items.some(({ adminOnly }) => !adminOnly || hasRole(currentUser, 'ADMIN')) &&
-            <div className="nav-group" key={group.title}>
-              <div className="nav-group-title">{group.title}</div>
-              {group.items.filter(({ adminOnly }) => !adminOnly || hasRole(currentUser, 'ADMIN')).map(({ label, path, icon: Icon }) => (
-                <NavLink className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`} to={path} key={path} title={label}>
-                  <Icon size={17} strokeWidth={1.9} /><span>{label}</span>
-                </NavLink>
-              ))}
+    <PermissionContext.Provider value={currentUser}>
+      <ToastContainer />
+      <div className={`app-frame ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${sidebarOpen ? 'sidebar-drawer-open' : ''}`}>
+        {sidebarOpen && <button className="sidebar-scrim" aria-label="Đóng menu" onClick={() => setSidebarOpen(false)} />}
+        <aside id="main-sidebar" className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
+          <div className="brand-lockup">
+            {sidebarCollapsed ? (
+              <button className="brand-mark brand-mark-button" type="button" aria-label="Mở rộng thanh điều hướng" onClick={() => setSidebarCollapsed(false)}><Leaf className="brand-leaf-icon" size={19} strokeWidth={2.5} /><PanelLeftOpen className="brand-open-icon" size={19} strokeWidth={2} /></button>
+            ) : (
+              <div className="brand-mark"><Leaf size={19} strokeWidth={2.5} /></div>
+            )}
+            <div className="brand-copy"><div className="brand-name">FloraCore</div><div className="brand-caption">GREENHOUSE SYSTEMS</div></div>
+            <button className="icon-button sidebar-collapse" aria-label={sidebarCollapsed ? 'Mở rộng thanh điều hướng' : 'Thu gọn thanh điều hướng'} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}>{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
+          </div>
+          <div className="facility-switcher">
+            <span className="facility-avatar"><Sprout size={17} /></span>
+            <span className="facility-copy"><strong>Nhà kính chính</strong><small>Hydroponic facility</small></span>
+            <ChevronDown size={15} className="muted-icon" />
+          </div>
+          <nav className="side-navigation" aria-label="Điều hướng chính">
+            {navigation.map((group) => {
+              const visibleItems = group.items.filter((item) =>
+                !item.requiredRoles || hasAnyRole(currentUser, item.requiredRoles)
+              );
+              if (!visibleItems.length) return null;
+              return (
+                <div className="nav-group" key={group.title}>
+                  <div className="nav-group-title">{group.title}</div>
+                  {visibleItems.map(({ label, path, icon: Icon }) => (
+                    <NavLink className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`} to={path} key={path} title={label}>
+                      <Icon size={17} strokeWidth={1.9} /><span>{label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              );
+            })}
+          </nav>
+          <div className="sidebar-bottom">
+            <div className="broker-status" title="MQTT broker: Đang hoạt động trên cổng 1883"><span className="status-dot" style={{ background: '#22c55e', boxShadow: '0 0 0 3px #dcfce7' }} /><span><strong>MQTT broker</strong><small style={{ color: '#16a34a', fontWeight: 600 }}>Đang kết nối (1883)</small></span><Wifi size={16} style={{ color: '#16a34a' }} /></div>
+            <div className="profile-block">
+              <NavLink to="/my-profile" className="profile-link" title={currentUser.fullName || currentUser.username}><span className="profile-avatar">{sidebarAvatar ? <img src={sidebarAvatar} alt="" className="avatar-img" /> : (currentUser.fullName || currentUser.username || 'U').split(' ').map((part) => part[0]).join('').slice(0,2).toUpperCase()}</span><span><strong>{currentUser.fullName || currentUser.username}</strong><small>{roleLabel(currentUser.roles?.[0])}</small></span><ChevronDown size={15} /></NavLink>
+              <button className="button button-secondary button-small logout-button" type="button" aria-label="Đăng xuất" title="Đăng xuất" onClick={handleLogout}><LogOut size={14} /><span>Đăng xuất</span></button>
             </div>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="broker-status" title="MQTT broker: Đang hoạt động trên cổng 1883"><span className="status-dot" style={{ background: '#22c55e', boxShadow: '0 0 0 3px #dcfce7' }} /><span><strong>MQTT broker</strong><small style={{ color: '#16a34a', fontWeight: 600 }}>Đang kết nối (1883)</small></span><Wifi size={16} style={{ color: '#16a34a' }} /></div>
-          <div className="profile-block">
-            <NavLink to="/my-profile" className="profile-link" title={currentUser.fullName || currentUser.username}><span className="profile-avatar">{sidebarAvatar ? <img src={sidebarAvatar} alt="" className="avatar-img" /> : (currentUser.fullName || currentUser.username || 'U').split(' ').map((part) => part[0]).join('').slice(0,2).toUpperCase()}</span><span><strong>{currentUser.fullName || currentUser.username}</strong><small>{roleLabel(currentUser.roles?.[0])}</small></span><ChevronDown size={15} /></NavLink>
-            <button className="button button-secondary button-small logout-button" type="button" aria-label="Đăng xuất" title="Đăng xuất" onClick={handleLogout}><LogOut size={14} /><span>Đăng xuất</span></button>
           </div>
-        </div>
-      </aside>
+        </aside>
 
-      <div className="workspace">
-        <header className="topbar">
-          <button className="icon-button menu-toggle" aria-label="Mở thanh điều hướng" aria-controls="main-sidebar" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
-          <div className="breadcrumb"><NavLink to="/dashboard" className="crumb-home" aria-label="Về Dashboard"><Home size={16} /></NavLink><span className="breadcrumb-slash">/</span><span>Greenhouse Network</span><span className="breadcrumb-slash">/</span><strong className="breadcrumb-current">{getPageTitle(location.pathname)}</strong></div>
-          <div className="topbar-actions">
-            <TopbarExtras currentUser={currentUser} onLogout={handleLogout} />
-          </div>
-        </header>
-        <main className="page-content">
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/login" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<ProtectedRoute currentUser={currentUser}><Dashboard /></ProtectedRoute>} />
-            <Route path="/devices" element={<ProtectedRoute currentUser={currentUser}><Devices /></ProtectedRoute>} />
-            <Route path="/alerts" element={<ProtectedRoute currentUser={currentUser}><AlertsPage /></ProtectedRoute>} />
-            <Route path="/commands" element={<Navigate to="/devices" replace />} />
-            <Route path="/device-lifecycle" element={<ProtectedRoute currentUser={currentUser}><DeviceLifecyclePage /></ProtectedRoute>} />
-            <Route path="/users" element={<ProtectedRoute currentUser={currentUser} requiredRole="ADMIN"><UsersPage /></ProtectedRoute>} />
-            <Route path="/audit-logs" element={<ProtectedRoute currentUser={currentUser} requiredRole="ADMIN"><AuditLogsPage /></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute currentUser={currentUser}><SettingsPage /></ProtectedRoute>} />
-            <Route path="/my-profile" element={<ProtectedRoute currentUser={currentUser}><ProfilePage /></ProtectedRoute>} />
-            <Route path="/invite-user" element={<ProtectedRoute currentUser={currentUser} requiredRole="ADMIN"><InviteUserPage /></ProtectedRoute>} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </main>
+        <div className="workspace">
+          <header className="topbar">
+            <button className="icon-button menu-toggle" aria-label="Mở thanh điều hướng" aria-controls="main-sidebar" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
+            <div className="breadcrumb"><NavLink to="/dashboard" className="crumb-home" aria-label="Về Dashboard"><Home size={16} /></NavLink><span className="breadcrumb-slash">/</span><span>Greenhouse Network</span><span className="breadcrumb-slash">/</span><strong className="breadcrumb-current">{getPageTitle(location.pathname)}</strong></div>
+            <div className="topbar-actions">
+              <TopbarExtras currentUser={currentUser} onLogout={handleLogout} />
+            </div>
+          </header>
+          <main className="page-content">
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<ProtectedRoute currentUser={currentUser}><Dashboard /></ProtectedRoute>} />
+              <Route path="/devices" element={<ProtectedRoute currentUser={currentUser}><Devices /></ProtectedRoute>} />
+              <Route path="/alerts" element={<ProtectedRoute currentUser={currentUser}><AlertsPage /></ProtectedRoute>} />
+              <Route path="/commands" element={<Navigate to="/devices" replace />} />
+              <Route path="/device-lifecycle" element={<ProtectedRoute currentUser={currentUser} requiredRoles={["ADMIN"]}><DeviceLifecyclePage /></ProtectedRoute>} />
+              <Route path="/users" element={<ProtectedRoute currentUser={currentUser} requiredRoles={["ADMIN"]}><UsersPage /></ProtectedRoute>} />
+              <Route path="/audit-logs" element={<ProtectedRoute currentUser={currentUser} requiredRoles={["ADMIN"]}><AuditLogsPage /></ProtectedRoute>} />
+              <Route path="/my-profile" element={<ProtectedRoute currentUser={currentUser}><ProfilePage /></ProtectedRoute>} />
+              <Route path="/invite-user" element={<ProtectedRoute currentUser={currentUser} requiredRoles={["ADMIN"]}><InviteUserPage /></ProtectedRoute>} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </main>
+        </div>
       </div>
-    </div>
+    </PermissionContext.Provider>
   );
 }
 
@@ -454,6 +474,7 @@ function PageHeading({ eyebrow, title, description, actions }) {
 }
 
 function Dashboard() {
+  const { canControl } = usePermission();
   const [devices, setDevices] = useState([]);
   const [telemetry, setTelemetry] = useState([]);
   const [configuration, setConfiguration] = useState(null);
@@ -760,7 +781,7 @@ function Dashboard() {
                   <Cpu size={16} style={{ color: '#16a34a' }} /> Thiết bị điều khiển
                 </h3>
               </div>
-              <NavLink to="/devices" className="card-link-icon" title="Xem chi tiết và điều khiển tại trang Thiết bị">
+              <NavLink to="/devices" className="card-link-icon" title={canControl ? "Xem chi tiết và điều khiển tại trang Thiết bị" : "Xem chi tiết tại trang Thiết bị"}>
                 <ArrowUpRight size={16} />
               </NavLink>
             </div>
@@ -802,7 +823,7 @@ function Dashboard() {
 
       {/* DANH SÁCH THIẾT BỊ HẠ TẦNG */}
       <section className="content-section device-section">
-        <div className="section-heading"><div><div className="section-kicker">HẠ TẦNG</div><h2>Thiết bị</h2></div><NavLink className="text-link" to="/devices">Xem tất cả &amp; Điều khiển <ArrowUpRight size={15} /></NavLink></div>
+        <div className="section-heading"><div><div className="section-kicker">HẠ TẦNG</div><h2>Thiết bị</h2></div><NavLink className="text-link" to="/devices">{canControl ? 'Xem tất cả & Điều khiển' : 'Xem tất cả'} <ArrowUpRight size={15} /></NavLink></div>
         <DeviceTable devices={devices.slice(0, 5)} loading={loading} compact />
       </section>
     </>
@@ -962,6 +983,7 @@ function loadActuatorState() {
 }
 
 function Devices() {
+  const { canControl, canManageDevices, canManageSchedules, isViewer } = usePermission();
   const [backendDevices, setBackendDevices] = useState([]);
   const [latest, setLatest] = useState(null);
   const [query, setQuery] = useState('');
@@ -1544,13 +1566,21 @@ function Devices() {
       <div className="page-heading dev-heading">
         <div>
           <h1>Thiết bị &amp; Cảm biến</h1>
-          <p>Theo dõi các cảm biến và điều khiển bật/tắt thiết bị trong nhà kính.</p>
+          <p>{canControl ? 'Theo dõi các cảm biến và điều khiển bật/tắt thiết bị trong nhà kính.' : 'Theo dõi các cảm biến và chỉ số môi trường trong nhà kính.'}</p>
         </div>
         <div className="heading-actions dev-heading-actions">
           <button className="icon-button dev-refresh" type="button" aria-label="Làm mới thiết bị" title="Làm mới" onClick={() => loadDevices()} disabled={loading}><RefreshCw size={16} className={loading ? 'spin' : ''} /></button>
-          <button className="button button-primary dev-add" onClick={() => setModalOpen(true)}><Plus size={16} /> Thêm thiết bị</button>
+          {canManageDevices && (
+            <button className="button button-primary dev-add" onClick={() => setModalOpen(true)}><Plus size={16} /> Thêm thiết bị</button>
+          )}
         </div>
       </div>
+      {isViewer && (
+        <div className="notice notice-info" style={{ alignItems: 'center', fontSize: '13px', fontWeight: 500, padding: '10px 14px', marginBottom: '16px' }}>
+          <Info size={16} style={{ flexShrink: 0 }} />
+          <span>Bạn đang xem với vai trò Người xem — chỉ đọc dữ liệu</span>
+        </div>
+      )}
       {error && <div className="notice notice-error"><AlertTriangle size={17} /><span>{error}</span></div>}
       
       <section className="dev-summary" aria-label="Tổng quan thiết bị">
@@ -1612,39 +1642,41 @@ function Devices() {
         </article>
       </section>
 
-      {/* THANH ĐIỀU KHIỂN NHANH TRỰC TIẾP TRÊN TRANG THIẾT BỊ */}
-      <div className="dev-control-bar">
-        <div className="dev-control-bar-buttons">
-          <button
-            type="button"
-            className={`mode-toggle-btn ${liveStatus?.autoMode ? 'auto-active' : ''}`}
-            onClick={() => toggleAutoMode(!liveStatus?.autoMode)}
-            title="Chuyển chế độ Tự động / Thủ công"
-          >
-            <SlidersHorizontal size={14} />
-            {liveStatus?.autoMode ? 'Chế độ: Tự động (Auto)' : 'Chế độ: Thủ công (Manual)'}
-          </button>
-          <button
-            type="button"
-            className="btn-emergency-stop"
-            onClick={handleEmergencyStop}
-            title="Ngắt khẩn cấp toàn bộ tải (Tắt hết)"
-          >
-            <Power size={14} /> Ngắt khẩn cấp (Tắt hết)
-          </button>
-          <button
-            type="button"
-            className="btn-config-threshold"
-            onClick={openThresholdModal}
-            title="Cấu hình ngưỡng tự động"
-          >
-            <Settings2 size={14} /> Cài đặt ngưỡng
-          </button>
+      {/* THANH ĐIỀU KHIỂN NHANH TRỰC TIẾP TRÊN TRANG THIẾT BỊ (ADMIN & OPERATOR) */}
+      {canControl && (
+        <div className="dev-control-bar">
+          <div className="dev-control-bar-buttons">
+            <button
+              type="button"
+              className={`mode-toggle-btn ${liveStatus?.autoMode ? 'auto-active' : ''}`}
+              onClick={() => toggleAutoMode(!liveStatus?.autoMode)}
+              title="Chuyển chế độ Tự động / Thủ công"
+            >
+              <SlidersHorizontal size={14} />
+              {liveStatus?.autoMode ? 'Chế độ: Tự động (Auto)' : 'Chế độ: Thủ công (Manual)'}
+            </button>
+            <button
+              type="button"
+              className="btn-emergency-stop"
+              onClick={handleEmergencyStop}
+              title="Ngắt khẩn cấp toàn bộ tải (Tắt hết)"
+            >
+              <Power size={14} /> Ngắt khẩn cấp (Tắt hết)
+            </button>
+            <button
+              type="button"
+              className="btn-config-threshold"
+              onClick={openThresholdModal}
+              title="Cấu hình ngưỡng tự động"
+            >
+              <Settings2 size={14} /> Cài đặt ngưỡng
+            </button>
+          </div>
+          <span style={{ fontSize: '12px', color: '#64748b' }}>
+            {online ? '⚡ ESP32 đã kết nối và sẵn sàng nhận lệnh điều khiển' : '⚠️ ESP32 đang ngoại tuyến'}
+          </span>
         </div>
-        <span style={{ fontSize: '12px', color: '#64748b' }}>
-          {online ? '⚡ ESP32 đã kết nối và sẵn sàng nhận lệnh điều khiển' : '⚠️ ESP32 đang ngoại tuyến'}
-        </span>
-      </div>
+      )}
 
       <section className="dev-panel">
         <div className="dev-toolbar">
@@ -1700,7 +1732,7 @@ function Devices() {
                               <i />{sensorLinkLabels[item.link]}
                             </span>
                           )
-                        ) : (
+                        ) : canControl ? (
                           <div className="actuator-switch-cell">
                             <input
                               type="checkbox"
@@ -1715,6 +1747,14 @@ function Devices() {
                               <LoaderCircle size={14} className="spin actuator-switch-spin" title="Đang gửi lệnh..." />
                             )}
                           </div>
+                        ) : (
+                          <span
+                            className={`status-pill ${item.on ? 'status-online' : 'status-neutral'}`}
+                            style={{ fontSize: '11px', padding: '3px 9px' }}
+                          >
+                            <span />
+                            {item.on ? 'Đang bật' : 'Đang tắt'}
+                          </span>
                         )}
                       </td>
                       <td>
@@ -1737,8 +1777,157 @@ function Devices() {
         </div>
       </section>
 
-      {/* MODAL CÀI ĐẶT NGƯỠNG TRONG TRANG THIẾT BỊ */}
-      {showThresholdModal && (
+      {/* PHẦN LỊCH CHIẾU SÁNG QUANG HỢP TỰ ĐỘNG */}
+      <section className="light-schedule-panel" aria-label="Lịch chiếu sáng quang hợp">
+        <div className="light-schedule-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ display: 'inline-flex', padding: '6px', background: '#dcfce7', borderRadius: '8px', color: '#16a34a' }}>
+              <Lightbulb size={18} />
+            </span>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
+                Lịch chiếu sáng quang hợp tự động
+              </h3>
+              <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>
+                {lightSchedules.length} lịch được cài đặt cho node điều khiển
+              </p>
+            </div>
+          </div>
+          {canManageSchedules && (
+            <button
+              type="button"
+              className="button button-secondary button-small"
+              onClick={() => {
+                setShowSchedulePanel((v) => !v);
+                setEditingScheduleId(null);
+                setScheduleForm({ label: '', turnOnTime: '19:00', turnOffTime: '07:00', enabled: true });
+              }}
+            >
+              <Plus size={14} /> {showSchedulePanel ? 'Đóng form' : 'Thêm lịch mới'}
+            </button>
+          )}
+        </div>
+
+        {/* Form tạo/sửa lịch: chỉ ADMIN và OPERATOR */}
+        {canManageSchedules && showSchedulePanel && (
+          <form className="light-schedule-form" onSubmit={handleSaveSchedule}>
+            <div className="light-schedule-form-row">
+              <label className="ls-field">
+                <span>Tên mô tả lịch</span>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Chiếu sáng ban đêm"
+                  value={scheduleForm.label}
+                  onChange={(e) => setScheduleForm((cur) => ({ ...cur, label: e.target.value }))}
+                  required
+                />
+              </label>
+              <label className="ls-field">
+                <span>🌙 Giờ bật (24h)</span>
+                <input
+                  type="time"
+                  value={scheduleForm.turnOnTime}
+                  onChange={(e) => setScheduleForm((cur) => ({ ...cur, turnOnTime: e.target.value }))}
+                  required
+                />
+              </label>
+              <label className="ls-field">
+                <span>☀️ Giờ tắt (24h)</span>
+                <input
+                  type="time"
+                  value={scheduleForm.turnOffTime}
+                  onChange={(e) => setScheduleForm((cur) => ({ ...cur, turnOffTime: e.target.value }))}
+                  required
+                />
+              </label>
+              <label className="ls-field ls-field-toggle">
+                <span>Kích hoạt</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={scheduleForm.enabled}
+                  onChange={(e) => setScheduleForm((cur) => ({ ...cur, enabled: e.target.checked }))}
+                />
+              </label>
+              <div className="ls-field ls-actions">
+                <button type="submit" className="button button-primary button-small" disabled={savingSchedule}>
+                  {savingSchedule ? <LoaderCircle size={13} className="spin" /> : <Check size={13} />} {editingScheduleId ? 'Cập nhật' : 'Lưu lịch'}
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary button-small"
+                  onClick={() => { setShowSchedulePanel(false); setEditingScheduleId(null); }}
+                >
+                  Hủy
+                </button>
+              </div>
+            </div>
+            {scheduleError && <p style={{ color: '#dc2626', fontSize: '11px', margin: '8px 0 0' }}>{scheduleError}</p>}
+          </form>
+        )}
+
+        {/* Danh sách lịch chiếu sáng: CẢ 3 VAI TRÒ ĐỀU XEM ĐƯỢC */}
+        {lightSchedules.length === 0 ? (
+          <div className="light-schedule-empty">
+            <Clock3 size={24} style={{ color: '#94a3b8' }} />
+            <span>Chưa có lịch chiếu sáng nào. {canManageSchedules ? 'Hãy nhấn "Thêm lịch mới" để thiết lập.' : ''}</span>
+          </div>
+        ) : (
+          <div className="light-schedule-list">
+            {lightSchedules.map((s) => (
+              <div key={s.id} className={`light-schedule-item ${s.enabled ? '' : 'ls-disabled'}`}>
+                <div className="ls-info">
+                  <strong>{s.label || 'Lịch chiếu sáng'}</strong>
+                  <div className="ls-time">
+                    <Sun size={13} style={{ color: '#f59e0b' }} />
+                    <span>{s.turnOnTime} ➔ {s.turnOffTime}</span>
+                  </div>
+                  <span className={`ls-badge ${s.enabled ? 'ls-badge-on' : 'ls-badge-off'}`}>
+                    {s.enabled ? 'Đang kích hoạt' : 'Đã tắt'}
+                  </span>
+                </div>
+                {canManageSchedules && (
+                  <div className="ls-row-actions">
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={s.enabled}
+                      onChange={() => handleToggleScheduleEnabled(s)}
+                      title="Bật/Tắt lịch"
+                    />
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() => { handleEditSchedule(s); setShowSchedulePanel(true); }}
+                      title="Chỉnh sửa lịch"
+                      aria-label="Chỉnh sửa lịch"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() => handleDeleteSchedule(s.id)}
+                      title="Xóa lịch"
+                      aria-label="Xóa lịch"
+                      style={{ color: '#dc2626' }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="light-schedule-note">
+          💡 Hệ thống tự động kích hoạt Đèn quang hợp khi thời gian nằm trong khung giờ bật ➔ tắt (hỗ trợ bật qua đêm), và tự động tắt đèn khi ngoài khung giờ.
+        </div>
+      </section>
+
+      {/* MODAL CÀI ĐẶT NGƯỠNG TRONG TRANG THIẾT BỊ (ADMIN & OPERATOR) */}
+      {canControl && showThresholdModal && (
         <div className="modal-overlay" onClick={() => setShowThresholdModal(false)}>
           <div className="threshold-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="threshold-dialog-header">
@@ -1912,7 +2101,7 @@ function Devices() {
         </div>
       )}
 
-      {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false); }}><form className="modal" onSubmit={createDevice}><div className="modal-heading"><div><div className="section-kicker">THIẾT BỊ MỚI</div><h2>Thêm thiết bị</h2></div><button type="button" className="icon-button" aria-label="Đóng" onClick={() => setModalOpen(false)}><X size={18} /></button></div><label>Loại thiết bị<select name="kind" defaultValue="SENSOR_NODE"><option value="SENSOR_NODE">Node cảm biến (lưu vào backend)</option><option value="ACTUATOR">Thiết bị điều khiển (quạt / bơm / đèn)</option></select></label><label>Mã thiết bị (chỉ cho node cảm biến)<input name="deviceId" maxLength="100" placeholder="GH01-ESP32-002" /></label><label>Tên thiết bị<input name="name" required maxLength="150" placeholder="Ví dụ: Quạt thông gió" /></label><label>Khu vực<input name="zone" maxLength="50" placeholder="Nhà kính chính" /></label><label>Loại điều khiển (chỉ cho thiết bị điều khiển)<select name="actuatorType" defaultValue="GENERIC"><option value="FAN">Quạt</option><option value="PUMP">Máy bơm</option><option value="LAMP">Đèn</option><option value="GENERIC">Khác</option></select></label><label>Phiên bản firmware<input name="firmwareVersion" maxLength="50" placeholder="1.0.0" /></label><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => setModalOpen(false)}>Hủy</button><button className="button button-primary" disabled={saving}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />} {saving ? 'Đang gửi...' : 'Thêm'}</button></div></form></div>}
+      {canManageDevices && modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false); }}><form className="modal" onSubmit={createDevice}><div className="modal-heading"><div><div className="section-kicker">THIẾT BỊ MỚI</div><h2>Thêm thiết bị</h2></div><button type="button" className="icon-button" aria-label="Đóng" onClick={() => setModalOpen(false)}><X size={18} /></button></div><label>Loại thiết bị<select name="kind" defaultValue="SENSOR_NODE"><option value="SENSOR_NODE">Node cảm biến (lưu vào backend)</option><option value="ACTUATOR">Thiết bị điều khiển (quạt / bơm / đèn)</option></select></label><label>Mã thiết bị (chỉ cho node cảm biến)<input name="deviceId" maxLength="100" placeholder="GH01-ESP32-002" /></label><label>Tên thiết bị<input name="name" required maxLength="150" placeholder="Ví dụ: Quạt thông gió" /></label><label>Khu vực<input name="zone" maxLength="50" placeholder="Nhà kính chính" /></label><label>Loại điều khiển (chỉ cho thiết bị điều khiển)<select name="actuatorType" defaultValue="GENERIC"><option value="FAN">Quạt</option><option value="PUMP">Máy bơm</option><option value="LAMP">Đèn</option><option value="GENERIC">Khác</option></select></label><label>Phiên bản firmware<input name="firmwareVersion" maxLength="50" placeholder="1.0.0" /></label><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => setModalOpen(false)}>Hủy</button><button className="button button-primary" disabled={saving}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />} {saving ? 'Đang gửi...' : 'Thêm'}</button></div></form></div>}
     </>
   );
 }
@@ -1922,7 +2111,9 @@ function InventorySummaryCard({ icon: Icon, label, value, note, tone }) {
 }
 
 function DeviceInventoryTable({ devices, latestReadings, onEdit, onDelete }) {
-  return <div className="table-scroll inventory-table-scroll"><table className="inventory-table"><thead><tr><th>THIẾT BỊ</th><th>TRẠNG THÁI</th><th>GIÁ TRỊ / HOẠT ĐỘNG</th><th style={{ textAlign: 'right' }}>THAO TÁC</th></tr></thead><tbody>{devices.map((device) => {
+  const { canManageDevices, canControl } = usePermission();
+  const showActions = canControl || canManageDevices;
+  return <div className="table-scroll inventory-table-scroll"><table className="inventory-table"><thead><tr><th>THIẾT BỊ</th><th>TRẠNG THÁI</th><th>GIÁ TRỊ / HOẠT ĐỘNG</th>{showActions && <th style={{ textAlign: 'right' }}>THAO TÁC</th>}</tr></thead><tbody>{devices.map((device) => {
     const telemetry = latestReadings[device.deviceId];
     const isActive = ['ACTIVE', 'ONLINE'].includes(device.status?.toUpperCase()) || (device.lastSeen && (Date.now() - new Date(device.lastSeen).getTime()) < 180000);
     const readings = [
@@ -1934,7 +2125,19 @@ function DeviceInventoryTable({ devices, latestReadings, onEdit, onDelete }) {
       <td><div className="inventory-device-name"><span className="inventory-device-icon"><Cpu size={15} /></span><span><strong>{device.name || 'Chưa đặt tên'}</strong><small>{device.deviceId} · {device.zone || 'Chưa phân khu'}</small></span></div></td>
       <td><span className={`inventory-status ${isActive ? 'inventory-status-active' : ''}`}><i />{isActive ? 'Hoạt động' : device.status === 'OFFLINE' ? 'Mất kết nối' : device.status || 'Chưa xác định'}</span></td>
       <td><div className="device-readings">{readings.length ? readings : <span className="device-reading-empty">{device.lastSeen ? `Hoạt động ${new Date(device.lastSeen).toLocaleTimeString('vi-VN')}` : 'Chưa nhận telemetry'}</span>}</div></td>
-      <td><div className="inventory-action-group"><NavLink className="inventory-row-action" to={`/devices`} title="Điều khiển thiết bị"><Activity size={12} /> Điều khiển</NavLink><button type="button" className="inventory-row-action inventory-row-edit" onClick={() => onEdit?.(device)} title="Chỉnh sửa thiết bị"><Pencil size={12} /> Sửa</button><button type="button" className="inventory-row-action inventory-row-delete" onClick={() => onDelete?.(device)} title="Xóa thiết bị"><Trash2 size={12} /> Xóa</button></div></td>
+      {showActions && (
+        <td>
+          <div className="inventory-action-group">
+            {canControl && <NavLink className="inventory-row-action" to={`/devices`} title="Điều khiển thiết bị"><Activity size={12} /> Điều khiển</NavLink>}
+            {canManageDevices && (
+              <>
+                <button type="button" className="inventory-row-action inventory-row-edit" onClick={() => onEdit?.(device)} title="Chỉnh sửa thiết bị"><Pencil size={12} /> Sửa</button>
+                <button type="button" className="inventory-row-action inventory-row-delete" onClick={() => onDelete?.(device)} title="Xóa thiết bị"><Trash2 size={12} /> Xóa</button>
+              </>
+            )}
+          </div>
+        </td>
+      )}
     </tr>;
   })}</tbody></table></div>;
 }

@@ -2620,3 +2620,31 @@ input[type="checkbox"][role="switch"]:disabled {
     gap: 4px;
   }
 }
+
+:root[data-theme="dark"] .light-schedule-panel {
+  border-color: #1e3a29;
+  background: #18221d;
+  box-shadow: none;
+}
+:root[data-theme="dark"] .light-schedule-form,
+:root[data-theme="dark"] .light-schedule-item {
+  background: #1c2b23;
+  border-color: #2a4034;
+}
+:root[data-theme="dark"] .light-schedule-item.ls-disabled {
+  background: #161e1a;
+  border-color: #222e27;
+}
+:root[data-theme="dark"] .ls-info strong,
+:root[data-theme="dark"] .ls-time {
+  color: #e3ece7;
+}
+:root[data-theme="dark"] .light-schedule-note {
+  background: #192720;
+  color: #9cb8a8;
+  border-left-color: #22c55e;
+}
+:root[data-theme="dark"] .notice-info {
+  color: #92b4c4;
+  background: #192933;
+}

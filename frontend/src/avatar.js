@@ -105,17 +105,4 @@ export function setPhone(user, value) {
   }
 }
 
-export function roleLabel(role) {
-  switch (String(role || '').replace(/^ROLE_/i, '').toUpperCase()) {
-    case 'ADMIN':
-      return 'Quản trị viên (Admin)';
-    case 'OPERATOR':
-      return 'Giám sát (Operator)';
-    case 'VIEWER':
-      return 'Người xem (Viewer)';
-    case 'USER':
-      return 'Người dùng';
-    default:
-      return role || 'Chưa gán vai trò';
-  }
-}
+export { roleLabel } from './permissions.jsx';
