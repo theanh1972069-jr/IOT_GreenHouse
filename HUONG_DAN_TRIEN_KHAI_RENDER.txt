@@ -60,12 +60,15 @@ BƯỚC 3: TRIỂN KHAI BACKEND (SPRING BOOT DOCKER WEB SERVICE)
 --------------------------------------------------------------------------------
 1. Trên Render Dashboard, bấm "New +" -> Chọn "Web Service".
 2. Kết nối tới GitHub Repository của dự án.
-3. Cấu hình dịch vụ:
-     - Name: greenhouse-backend
-     - Region: Singapore
-     - Environment: Docker
-     - Dockerfile Path: backend/Dockerfile
-     - Docker Context: backend
+3. Cấu hình dịch vụ (chọn 1 trong 2 cách đều được):
+     Cách 1 (Dễ nhất - mặc định):
+       - Root Directory: để trống
+       - Runtime: Docker
+       - Dockerfile Path: Dockerfile (mặc định)
+     Cách 2:
+       - Root Directory: backend
+       - Runtime: Docker
+       - Dockerfile Path: Dockerfile (hoặc backend/Dockerfile)
      - Plan: Free
 4. Phần Environment Variables (Thêm các biến môi trường):
      - PORT = 8080

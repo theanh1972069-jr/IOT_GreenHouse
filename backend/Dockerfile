@@ -11,6 +11,7 @@ RUN chmod +x mvnw && ./mvnw dependency:go-offline -B
 
 # Copy source code and package application
 COPY src src
+RUN mkdir -p ../database && touch ../database/create_tables.sql
 RUN ./mvnw clean package -DskipTests
 
 # Stage 2: Runtime
