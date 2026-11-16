@@ -1,57 +1,8 @@
-/*
- * ==============================================================================
- * DỰ ÁN: IOT GREENHOUSE (Nhà kính thông minh)
- * FIRMWARE: ESP32 Telemetry & Actuator Controller (Tích hợp Web WiFiManager)
- * ==============================================================================
- *
- * TÍNH NĂNG ĐẶC BIỆT (KHÔNG CẦN SỬA CODE KHI ĐỔI WI-FI):
- * ------------------------------------------------------------------------------
- * - Khi bật nguồn, nếu chưa có Wi-Fi đã lưu (hoặc không kết nối được), ESP32
- *   sẽ tự động phát ra một mạng Wi-Fi tên: "GreenHouse_ESP32_Setup".
- * - Bạn chỉ cần dùng điện thoại/máy tính kết nối vào mạng đó, trang web cấu hình
- *   (192.168.4.1) sẽ tự động hiện lên để bạn:
- *      1. Chọn tên Wi-Fi nhà bạn và gõ mật khẩu.
- *      2. Nhập IP Server MQTT (mặc định đã để sẵn: 192.168.1.220).
- *      3. Nhập Device ID (mặc định đã để sẵn: esp32-01).
- *   Bấm [SAVE], ESP32 sẽ lưu vĩnh viễn vào bộ nhớ Flash và kết nối mạng!
- *
- * - NÚT RESET CẤU HÌNH (NÚT BOOT TRÊN ESP32 - GPIO 0):
- *   Nếu muốn đổi sang Wi-Fi khác: Hãy bấm giữ nút BOOT trên board khoảng 3 giây,
- *   ESP32 sẽ xóa cấu hình cũ và phát lại Wi-Fi Setup để bạn nhập lại.
- *
- * SƠ ĐỒ ĐẤU DÂY (ĐÃ CHỐT):
- * ------------------------------------------------------------------------------
- * 1. NGUỒN:
- *    - ESP32: Cấp qua cổng USB máy tính
- *    - Chân VIN (5V) ESP32 -> DC+ Relay (chân phải nhất)
- *    - 1 chân GND ESP32    -> Rail Xanh (Breadboard GND)
- *    - 1 chân 3V3 ESP32    -> Rail Đỏ (Breadboard 3.3V)
- *    - DC- Relay           -> Rail Xanh (GND chung)
- *
- * 2. CẢM BIẾN:
- *    - DHT22 (Nhiệt độ & Độ ẩm không khí):
- *        OUT (Data) -> D26 (GPIO 26)
- *        + (VCC)    -> Rail Đỏ (3.3V)
- *        - (GND)    -> Rail Xanh (GND)
- *    - HW-390 (Cảm biến độ ẩm đất điện dung):
- *        AOUT (Data)-> D35 (GPIO 35, ADC1 - an toàn tuyệt đối khi bật Wi-Fi)
- *        VCC        -> Rail Đỏ (3.3V)
- *        GND        -> Rail Xanh (GND)
- *
- * 3. MODULE RELAY 4 KÊNH (Active LOW: LOW = BẬT, HIGH = TẮT):
- *    - D25 -> IN1 (Van nước)   -- chân thứ 4 từ trái
- *    - D33 -> IN2 (Quạt gió)    -- chân thứ 3 từ trái
- *    - D32 -> IN3 (Đèn quang)   -- chân thứ 2 từ trái
- *    - IN4 -> Bỏ trống
- *    * Quy tắc: digitalWrite(HIGH) TRƯỚC pinMode(OUTPUT) để chống chớp relay lúc boot!
- * ==============================================================================
- */
-
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <DHT.h>
-#include <WiFiManager.h>   // Thư viện tạo Web Captive Portal
-#include <Preferences.h>   // Lưu cấu hình MQTT Server, Device ID vào Flash ESP32
+#include <WiFiManager.h>
+#include <Preferences.h>
 
 // ============================ 1. NÚT RESET CẤU HÌNH ==========================
 #define TRIGGER_PIN  0     // Nút BOOT trên ESP32 (GPIO 0)
@@ -83,11 +34,7 @@ const int WATER_VALUE = 1400;  // Nhúng vào cốc nước (100%)
 #define RELAY_FAN_PIN    33    // IN2: Quạt gió
 #define RELAY_LIGHT_PIN  32    // IN3: Đèn quang hợp
 
-// CẤU HÌNH MỨC KÍCH RELAY:
-// - Module Relay Active HIGH: Mức HIGH (3.3V) = BẬT, Mức LOW (0V) = TẮT
-// - Module Relay Active LOW : Mức LOW (0V) = BẬT, Mức HIGH (3.3V) = TẮT
-// Bạn có thể gõ "invert" vào Serial Monitor để đảo chiều bất cứ lúc nào!
-bool isRelayActiveLow = false; // Mặc định Active HIGH (đổi thành true nếu relay của bạn kích LOW)
+bool isRelayActiveLow = false;
 
 inline int getRelayLevel(bool state) {
   if (isRelayActiveLow) {
@@ -115,15 +62,9 @@ int   soilThresholdOff      = 60;   // Tắt van khi độ ẩm đất >= soilTh
 float lightTempThreshold    = 20.0; // Bật đèn khi nhiệt độ < lightTempThreshold (mặc định < 20°C)
 float lightTempThresholdOff = 22.0; // Tắt đèn khi nhiệt độ >= lightTempThresholdOff (đủ ấm)
 
-// ==============================================================================
-// CÔNG SUẤT THỰC TẾ CỦA THIẾT BỊ (Watts = Volt * Ampere):
-// - Quạt 12V 0.15A: P = 12 * 0.15 = 1.8 Watts
-// - Van điện từ 12V ~0.4A: P = 12 * 0.4 = 4.8 Watts
-// - Đèn quang hợp LED 12V ~0.8A: P = 12 * 0.8 = 9.6 Watts
-// ==============================================================================
-const float RATED_FAN_W   = 1.8; // Quạt 12V 0.15A = 1.8W thực tế
-const float RATED_VALVE_W = 4.8; // Van điện từ 12V ~4.8W
-const float RATED_LIGHT_W = 9.6; // Đèn LED 12V ~9.6W
+const float RATED_FAN_W   = 1.8;
+const float RATED_VALVE_W = 4.8;
+const float RATED_LIGHT_W = 9.6;
 
 // ============================ 4. BIẾN THỜI GIAN & CAN THIỆP THỦ CÔNG =========
 // Bỏ qua tự động hóa trong 5 phút (300,000 ms) sau khi người dùng can thiệp thủ công
