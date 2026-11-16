@@ -38,6 +38,9 @@ public class DeviceLiveStatus {
     private Double lightTempThreshold = 20.0;
 
     @Builder.Default
+    private Integer overrideDurationSeconds = 300;
+
+    @Builder.Default
     private double totalPowerW = 0.0;
 
     private ZonedDateTime valveOverrideUntil;

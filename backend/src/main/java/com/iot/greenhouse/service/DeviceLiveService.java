@@ -226,27 +226,27 @@ public class DeviceLiveService {
                     if (root.has("valveOverrideSec")) {
                         long sec = root.get("valveOverrideSec").asLong(0);
                         status.setValveOverrideSeconds(sec);
-                        if (sec > 0 && status.getValveOverrideUntil() == null) {
+                        if (sec > 0) {
                             status.setValveOverrideUntil(ZonedDateTime.now().plusSeconds(sec));
-                        } else if (sec == 0) {
+                        } else {
                             status.setValveOverrideUntil(null);
                         }
                     }
                     if (root.has("fanOverrideSec")) {
                         long sec = root.get("fanOverrideSec").asLong(0);
                         status.setFanOverrideSeconds(sec);
-                        if (sec > 0 && status.getFanOverrideUntil() == null) {
+                        if (sec > 0) {
                             status.setFanOverrideUntil(ZonedDateTime.now().plusSeconds(sec));
-                        } else if (sec == 0) {
+                        } else {
                             status.setFanOverrideUntil(null);
                         }
                     }
                     if (root.has("lightOverrideSec")) {
                         long sec = root.get("lightOverrideSec").asLong(0);
                         status.setLightOverrideSeconds(sec);
-                        if (sec > 0 && status.getLightOverrideUntil() == null) {
+                        if (sec > 0) {
                             status.setLightOverrideUntil(ZonedDateTime.now().plusSeconds(sec));
-                        } else if (sec == 0) {
+                        } else {
                             status.setLightOverrideUntil(null);
                         }
                     }
@@ -335,22 +335,27 @@ public class DeviceLiveService {
             int currentSoil = soil != null ? soil : 0;
             double currentThresh = threshold != null ? threshold : 30.0;
 
+            long overrideSec = (status.getOverrideDurationSeconds() != null && status.getOverrideDurationSeconds() > 0)
+                    ? status.getOverrideDurationSeconds()
+                    : 300L;
+            int overrideMinutes = (int) Math.max(1, Math.round(overrideSec / 60.0));
+
             String msg;
             if (turnOn) {
                 if (currentSoil >= (int) currentThresh) {
-                    msg = String.format("Thiết bị đang có độ ẩm đất (%d%%) không ở ngưỡng bật/tắt (< %.0f%%), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentSoil, currentThresh);
+                    msg = String.format("Thiết bị đang có độ ẩm đất (%d%%) không ở ngưỡng bật/tắt (< %.0f%%), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentSoil, currentThresh, overrideMinutes);
                 } else {
-                    msg = String.format("Thiết bị đã được bật van thủ công (độ ẩm đất hiện tại %d%%, ngưỡng < %.0f%%), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentSoil, currentThresh);
+                    msg = String.format("Thiết bị đã được bật van thủ công (độ ẩm đất hiện tại %d%%, ngưỡng < %.0f%%), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentSoil, currentThresh, overrideMinutes);
                 }
             } else {
-                msg = String.format("Thiết bị đã được tắt van thủ công (độ ẩm đất hiện tại %d%%, ngưỡng < %.0f%%), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentSoil, currentThresh);
+                msg = String.format("Thiết bị đã được tắt van thủ công (độ ẩm đất hiện tại %d%%, ngưỡng < %.0f%%), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentSoil, currentThresh, overrideMinutes);
             }
 
             raiseManualOverrideAlert(deviceId, "SOIL_MOISTURE", msg);
-            status.setValveOverrideUntil(ZonedDateTime.now().plusMinutes(5));
-            status.setValveOverrideSeconds(300L);
+            status.setValveOverrideUntil(ZonedDateTime.now().plusSeconds(overrideSec));
+            status.setValveOverrideSeconds(overrideSec);
             status.setLastAlertMessage(msg);
-            scheduleAutoRevert(deviceId, "valve", 5);
+            scheduleAutoRevert(deviceId, "valve", overrideMinutes);
 
         } else if ("fan".equalsIgnoreCase(actuatorId)) {
             Double temp = status.getTemperature();
@@ -358,22 +363,27 @@ public class DeviceLiveService {
             double currentTemp = temp != null ? temp : 0.0;
             double currentThresh = threshold != null ? threshold : 35.0;
 
+            long overrideSec = (status.getOverrideDurationSeconds() != null && status.getOverrideDurationSeconds() > 0)
+                    ? status.getOverrideDurationSeconds()
+                    : 300L;
+            int overrideMinutes = (int) Math.max(1, Math.round(overrideSec / 60.0));
+
             String msg;
             if (turnOn) {
                 if (currentTemp <= currentThresh) {
-                    msg = String.format("Thiết bị đang có nhiệt độ (%.1f°C) không ở ngưỡng bật/tắt (> %.0f°C), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentTemp, currentThresh);
+                    msg = String.format("Thiết bị đang có nhiệt độ (%.1f°C) không ở ngưỡng bật/tắt (> %.0f°C), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentTemp, currentThresh, overrideMinutes);
                 } else {
-                    msg = String.format("Thiết bị đã được bật quạt thủ công (nhiệt độ hiện tại %.1f°C, ngưỡng > %.0f°C), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentTemp, currentThresh);
+                    msg = String.format("Thiết bị đã được bật quạt thủ công (nhiệt độ hiện tại %.1f°C, ngưỡng > %.0f°C), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentTemp, currentThresh, overrideMinutes);
                 }
             } else {
-                msg = String.format("Thiết bị đã được tắt quạt thủ công (nhiệt độ hiện tại %.1f°C, ngưỡng > %.0f°C), hệ thống sẽ tự động chỉnh lại sau 5 phút.", currentTemp, currentThresh);
+                msg = String.format("Thiết bị đã được tắt quạt thủ công (nhiệt độ hiện tại %.1f°C, ngưỡng > %.0f°C), hệ thống sẽ tự động chỉnh lại sau %d phút.", currentTemp, currentThresh, overrideMinutes);
             }
 
             raiseManualOverrideAlert(deviceId, "TEMPERATURE", msg);
-            status.setFanOverrideUntil(ZonedDateTime.now().plusMinutes(5));
-            status.setFanOverrideSeconds(300L);
+            status.setFanOverrideUntil(ZonedDateTime.now().plusSeconds(overrideSec));
+            status.setFanOverrideSeconds(overrideSec);
             status.setLastAlertMessage(msg);
-            scheduleAutoRevert(deviceId, "fan", 5);
+            scheduleAutoRevert(deviceId, "fan", overrideMinutes);
 
         } else if ("light".equalsIgnoreCase(actuatorId)) {
             // Đèn quang hợp điều khiển theo Lịch chiếu sáng (mặc định 19:00 - 07:00) và công tắc thủ công,
@@ -385,9 +395,12 @@ public class DeviceLiveService {
         updateActuatorState(status, actuatorId, turnOn);
         status.recalculateTotalPower();
 
+        long overrideSec = (status.getOverrideDurationSeconds() != null && status.getOverrideDurationSeconds() > 0)
+                ? status.getOverrideDurationSeconds()
+                : 300L;
         int stateInt = turnOn ? 1 : 0;
         String topic = "greenhouse/" + deviceId + "/control";
-        String payload = String.format("{\"%s\":%d,\"overrideSec\":300}", actuatorId.toLowerCase(), stateInt);
+        String payload = String.format("{\"%s\":%d,\"overrideSec\":%d}", actuatorId.toLowerCase(), stateInt, overrideSec);
         mqttPublisherService.publish(topic, payload);
 
         if (actor != null) {
@@ -495,6 +508,7 @@ public class DeviceLiveService {
     public DeviceLiveStatus updateThresholds(String deviceId, BigDecimal temperatureHigh,
                                              BigDecimal soilMoistureLow, BigDecimal lightTempLow,
                                              Boolean autoMode,
+                                             Integer overrideDurationSeconds,
                                              User actor, HttpServletRequest httpRequest) {
         DeviceLiveStatus status = getOrCreateLiveStatus(deviceId);
 
@@ -502,6 +516,9 @@ public class DeviceLiveService {
         if (soilMoistureLow != null) status.setSoilThreshold(soilMoistureLow.doubleValue());
         if (lightTempLow != null) status.setLightTempThreshold(lightTempLow.doubleValue());
         if (autoMode != null) status.setAutoMode(autoMode);
+        if (overrideDurationSeconds != null && overrideDurationSeconds > 0) {
+            status.setOverrideDurationSeconds(overrideDurationSeconds);
+        }
 
         // Persist to DeviceConfiguration table
         Optional<Device> deviceOpt = deviceRepository.findByDeviceId(deviceId);
@@ -518,13 +535,16 @@ public class DeviceLiveService {
 
         // Send command to ESP32 via MQTT so it immediately operates with the new thresholds
         String topic = "greenhouse/" + deviceId + "/control";
+        int overrideSec = status.getOverrideDurationSeconds() != null && status.getOverrideDurationSeconds() > 0
+                ? status.getOverrideDurationSeconds() : 300;
         String payload = String.format(
                 java.util.Locale.US,
-                "{\"tempThreshold\":%.1f,\"soilThreshold\":%.1f,\"lightTempThreshold\":%.1f,\"auto\":%d}",
+                "{\"tempThreshold\":%.1f,\"soilThreshold\":%.1f,\"lightTempThreshold\":%.1f,\"auto\":%d,\"overrideSec\":%d}",
                 status.getTempThreshold(),
                 status.getSoilThreshold(),
                 status.getLightTempThreshold(),
-                status.isAutoMode() ? 1 : 0
+                status.isAutoMode() ? 1 : 0,
+                overrideSec
         );
         mqttPublisherService.publish(topic, payload);
 
@@ -533,7 +553,8 @@ public class DeviceLiveService {
                     deviceId, Map.of("tempThreshold", status.getTempThreshold(),
                             "soilThreshold", status.getSoilThreshold(),
                             "lightTempThreshold", status.getLightTempThreshold(),
-                            "auto", status.isAutoMode()));
+                            "auto", status.isAutoMode(),
+                            "overrideSec", overrideSec));
         }
 
         return status;

@@ -567,9 +567,11 @@ function Dashboard() {
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdTemp, setThresholdTemp] = useState(35.0);
   const [thresholdSoil, setThresholdSoil] = useState(30.0);
+  const [overrideMinutes, setOverrideMinutes] = useState(5);
   const [lightSchedule, setLightSchedule] = useState({ onTime: '19:00', offTime: '07:00', id: null, enabled: true });
   const [draftTemp, setDraftTemp] = useState(35.0);
   const [draftSoil, setDraftSoil] = useState(30.0);
+  const [draftOverrideMinutes, setDraftOverrideMinutes] = useState(5);
   const [draftLightOn, setDraftLightOn] = useState('19:00');
   const [draftLightOff, setDraftLightOff] = useState('07:00');
   const [savingThreshold, setSavingThreshold] = useState(false);
@@ -577,11 +579,48 @@ function Dashboard() {
   useEffect(() => {
     if (liveStatus?.tempThreshold != null) setThresholdTemp(liveStatus.tempThreshold);
     if (liveStatus?.soilThreshold != null) setThresholdSoil(liveStatus.soilThreshold);
-  }, [liveStatus?.tempThreshold, liveStatus?.soilThreshold]);
+    if (liveStatus?.overrideDurationSeconds != null) setOverrideMinutes(Math.max(1, Math.round(liveStatus.overrideDurationSeconds / 60)));
+  }, [liveStatus?.tempThreshold, liveStatus?.soilThreshold, liveStatus?.overrideDurationSeconds]);
+
+  // Đếm ngược mượt mà thời gian khóa tự động mỗi 1 giây trên Dashboard
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLiveStatus((current) => {
+        if (!current) return current;
+        let vSec = current.valveOverrideSeconds;
+        let fSec = current.fanOverrideSeconds;
+        let changed = false;
+        if (typeof vSec === 'number' && vSec > 0) { vSec = vSec - 1; changed = true; }
+        if (typeof fSec === 'number' && fSec > 0) { fSec = fSec - 1; changed = true; }
+        if (!changed) return current;
+        return { ...current, valveOverrideSeconds: vSec, fanOverrideSeconds: fSec };
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Lắng nghe đồng bộ thời gian thực giữa các tab hoặc giữa Dashboard và Trang Thiết bị
+  useEffect(() => {
+    function onLiveUpdate(e) {
+      if (e.detail) setLiveStatus(e.detail);
+    }
+    function onStorage(e) {
+      if (e.key === 'flora:liveStatus' && e.newValue) {
+        try { setLiveStatus(JSON.parse(e.newValue)); } catch {}
+      }
+    }
+    window.addEventListener('flora:liveStatus-updated', onLiveUpdate);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('flora:liveStatus-updated', onLiveUpdate);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
 
   function openThresholdModal() {
     setDraftTemp(thresholdTemp);
     setDraftSoil(thresholdSoil);
+    setDraftOverrideMinutes(overrideMinutes);
     setDraftLightOn(lightSchedule.onTime || '19:00');
     setDraftLightOff(lightSchedule.offTime || '07:00');
     setShowThresholdModal(true);
@@ -598,12 +637,16 @@ function Dashboard() {
           temperatureHigh: parseFloat(draftTemp),
           soilMoistureLow: parseFloat(draftSoil),
           autoMode: liveStatus?.autoMode ?? true,
+          overrideDurationSeconds: draftOverrideMinutes * 60,
         }),
       });
       if (updated) {
         setLiveStatus(updated);
         setThresholdTemp(parseFloat(draftTemp));
         setThresholdSoil(parseFloat(draftSoil));
+        setOverrideMinutes(draftOverrideMinutes);
+        window.dispatchEvent(new CustomEvent('flora:liveStatus-updated', { detail: updated }));
+        try { localStorage.setItem('flora:liveStatus', JSON.stringify(updated)); } catch {}
       }
 
       // Lưu lịch bật/tắt đèn chiếu sáng quang hợp lên server
@@ -651,7 +694,7 @@ function Dashboard() {
         ...current,
         actuators: current.actuators.map((a) =>
           a.id === targetActuator
-            ? { ...a, state: newState, powerW: newState ? (a.ratedPowerW || (targetActuator === 'light' ? 9.6 : targetActuator === 'fan' ? 1.8 : 4.8)) : 0.0 }
+            ? { ...a, state: newState }
             : a
         ),
       };
@@ -661,7 +704,11 @@ function Dashboard() {
         method: 'POST',
         body: JSON.stringify({ actuator: targetActuator, state: newState }),
       });
-      if (updated) setLiveStatus(updated);
+      if (updated) {
+        setLiveStatus(updated);
+        window.dispatchEvent(new CustomEvent('flora:liveStatus-updated', { detail: updated }));
+        try { localStorage.setItem('flora:liveStatus', JSON.stringify(updated)); } catch {}
+      }
     } catch (err) {
       console.error('Lỗi khi điều khiển thiết bị:', err);
     } finally {
@@ -837,6 +884,7 @@ function Dashboard() {
               {actuators.map((act) => {
                 const isOn = Boolean(isDeviceOnline && act.state);
                 const ActIcon = act.id === 'fan' ? Fan : act.id === 'light' ? Lightbulb : Droplet;
+                const overrideSec = act.id === 'fan' ? liveStatus?.fanOverrideSeconds : act.id === 'valve' ? liveStatus?.valveOverrideSeconds : 0;
                 return (
                   <div key={act.id} className={`actuator-mini-item ${isOn ? 'mini-active' : ''}`}>
                     <div className="actuator-mini-left">
@@ -844,6 +892,11 @@ function Dashboard() {
                         <ActIcon size={14} />
                       </span>
                       <span className="actuator-mini-name">{getActuatorName(act)}</span>
+                      {Boolean(overrideSec > 0) && (
+                        <span className="manual-override-pill" title={`Đang tạm dừng tự động (còn ${overrideSec}s)`} style={{ marginLeft: 6, fontSize: 10, padding: '1px 5px', borderRadius: 4, background: '#fef3c7', color: '#b45309', fontWeight: 600 }}>
+                          ⏳ {overrideSec}s
+                        </span>
+                      )}
                     </div>
                     <div className="actuator-mini-right">
                       <input
@@ -985,6 +1038,73 @@ function Dashboard() {
                     </div>
                   </div>
                   <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, hệ thống sẽ tự động mở van tưới cấp nước.</small>
+                </div>
+
+                <div className="threshold-form-group" style={{ marginTop: 14 }}>
+                  <label>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Clock3 size={15} style={{ color: '#2563eb' }} /> Thời gian tạm dừng tự động khi can thiệp thủ công (Khóa tự động):
+                    </span>
+                    <strong style={{ color: '#2563eb' }}>{draftOverrideMinutes} phút ({draftOverrideMinutes * 60}s)</strong>
+                  </label>
+                  <div className="threshold-input-row">
+                    <div className="threshold-stepper">
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-minus"
+                        onClick={() => setDraftOverrideMinutes((prev) => Math.max(1, prev - 1))}
+                        title="Giảm 1 phút"
+                        aria-label="Giảm 1 phút"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <input
+                        type="number"
+                        min="1"
+                        max="60"
+                        className="threshold-val-input stepper-input"
+                        value={draftOverrideMinutes}
+                        onChange={(e) => setDraftOverrideMinutes(Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 1)))}
+                      />
+                      <span className="stepper-unit-badge">phút</span>
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-plus"
+                        onClick={() => setDraftOverrideMinutes((prev) => Math.min(60, prev + 1))}
+                        title="Tăng 1 phút"
+                        aria-label="Tăng 1 phút"
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </div>
+
+                    <div className="threshold-slider-flex">
+                      <input
+                        type="range"
+                        min="1"
+                        max="60"
+                        step="1"
+                        value={draftOverrideMinutes}
+                        onChange={(e) => setDraftOverrideMinutes(parseInt(e.target.value, 10))}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    {[1, 2, 5, 10, 15, 30].map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        className="button button-secondary"
+                        style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: draftOverrideMinutes === mins ? '#dbeafe' : undefined, fontWeight: draftOverrideMinutes === mins ? 600 : 400 }}
+                        onClick={() => setDraftOverrideMinutes(mins)}
+                      >
+                        {mins} phút{mins === 5 ? ' (Mặc định)' : ''}
+                      </button>
+                    ))}
+                  </div>
+                  <small style={{ color: '#7a8980', fontSize: 11, marginTop: 6, display: 'block' }}>
+                    Khi bạn chủ động bật/tắt thiết bị thủ công, hệ thống tự động sẽ tạm dừng trong khoảng thời gian này trước khi khôi phục tự động theo cảm biến.
+                  </small>
                 </div>
 
                 <div className="threshold-form-group" style={{ marginTop: 14 }}>
@@ -1252,8 +1372,10 @@ function Devices() {
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdTemp, setThresholdTemp] = useState(35.0);
   const [thresholdSoil, setThresholdSoil] = useState(30.0);
+  const [overrideMinutes, setOverrideMinutes] = useState(5);
   const [draftTemp, setDraftTemp] = useState(35.0);
   const [draftSoil, setDraftSoil] = useState(30.0);
+  const [draftOverrideMinutes, setDraftOverrideMinutes] = useState(5);
   const [draftLightOn, setDraftLightOn] = useState('19:00');
   const [draftLightOff, setDraftLightOff] = useState('07:00');
   const [savingThreshold, setSavingThreshold] = useState(false);
@@ -1333,6 +1455,7 @@ function Devices() {
   function openThresholdModal() {
     setDraftTemp(thresholdTemp);
     setDraftSoil(thresholdSoil);
+    setDraftOverrideMinutes(overrideMinutes);
     setDraftLightOn(activeLightSchedule?.turnOnTime || '19:00');
     setDraftLightOff(activeLightSchedule?.turnOffTime || '07:00');
     setShowThresholdModal(true);
@@ -1361,6 +1484,7 @@ function Devices() {
             setLiveStatus(live);
             if (live.tempThreshold != null) setThresholdTemp(live.tempThreshold);
             if (live.soilThreshold != null) setThresholdSoil(live.soilThreshold);
+            if (live.overrideDurationSeconds != null) setOverrideMinutes(Math.max(1, Math.round(live.overrideDurationSeconds / 60)));
             if (live.lightTempThreshold != null) setThresholdLightTemp(live.lightTempThreshold);
             if (live.actuators) {
               const isLiveOnline = Boolean(live.online);
@@ -1400,6 +1524,52 @@ function Devices() {
     };
   }, []);
 
+  // Đếm ngược mượt mà thời gian khóa tự động mỗi 1 giây trên trang Thiết bị
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLiveStatus((current) => {
+        if (!current) return current;
+        let vSec = current.valveOverrideSeconds;
+        let fSec = current.fanOverrideSeconds;
+        let changed = false;
+        if (typeof vSec === 'number' && vSec > 0) { vSec = vSec - 1; changed = true; }
+        if (typeof fSec === 'number' && fSec > 0) { fSec = fSec - 1; changed = true; }
+        if (!changed) return current;
+        return { ...current, valveOverrideSeconds: vSec, fanOverrideSeconds: fSec };
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Lắng nghe đồng bộ thời gian thực từ Dashboard hoặc các tab khác
+  useEffect(() => {
+    function onLiveUpdate(e) {
+      if (e.detail) {
+        setLiveStatus(e.detail);
+        if (e.detail.overrideDurationSeconds != null) {
+          setOverrideMinutes(Math.max(1, Math.round(e.detail.overrideDurationSeconds / 60)));
+        }
+      }
+    }
+    function onStorage(e) {
+      if (e.key === 'flora:liveStatus' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          setLiveStatus(parsed);
+          if (parsed.overrideDurationSeconds != null) {
+            setOverrideMinutes(Math.max(1, Math.round(parsed.overrideDurationSeconds / 60)));
+          }
+        } catch {}
+      }
+    }
+    window.addEventListener('flora:liveStatus-updated', onLiveUpdate);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('flora:liveStatus-updated', onLiveUpdate);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
   // Tải lịch đèn khi biết deviceId
   useEffect(() => {
     if (backendDevices.length) {
@@ -1428,7 +1598,7 @@ function Devices() {
         ...current,
         actuators: current.actuators.map((a) =>
           a.id === targetActuator
-            ? { ...a, state: newState, powerW: newState ? (a.ratedPowerW || (targetActuator === 'light' ? 9.6 : targetActuator === 'fan' ? 1.8 : 4.8)) : 0.0 }
+            ? { ...a, state: newState }
             : a
         ),
       };
@@ -1441,6 +1611,8 @@ function Devices() {
       });
       if (updated) {
         setLiveStatus(updated);
+        window.dispatchEvent(new CustomEvent('flora:liveStatus-updated', { detail: updated }));
+        try { localStorage.setItem('flora:liveStatus', JSON.stringify(updated)); } catch {}
         if (updated.actuators) {
           const fanAct = updated.actuators.find((a) => a.id === 'fan');
           const valveAct = updated.actuators.find((a) => a.id === 'valve');
@@ -1469,7 +1641,11 @@ function Devices() {
         method: 'POST',
         body: JSON.stringify({ autoMode: newAuto }),
       });
-      if (updated) setLiveStatus(updated);
+      if (updated) {
+        setLiveStatus(updated);
+        window.dispatchEvent(new CustomEvent('flora:liveStatus-updated', { detail: updated }));
+        try { localStorage.setItem('flora:liveStatus', JSON.stringify(updated)); } catch {}
+      }
     } catch (err) {
       setError(err.message || 'Lỗi đổi chế độ.');
     }
@@ -1485,13 +1661,15 @@ function Devices() {
       if (updated) {
         setLiveStatus(updated);
         setActuators((current) => ({ ...current, fan: false, pump: false, lamp: false, valve: false, light: false }));
+        window.dispatchEvent(new CustomEvent('flora:liveStatus-updated', { detail: updated }));
+        try { localStorage.setItem('flora:liveStatus', JSON.stringify(updated)); } catch {}
       }
     } catch (err) {
       setError(err.message || 'Lỗi ngắt thiết bị.');
     }
   }
 
-    async function handleSaveThresholds(e) {
+  async function handleSaveThresholds(e) {
     if (e) e.preventDefault();
     const devId = backendDevices[0]?.deviceId || 'esp32-01';
     setSavingThreshold(true);
@@ -1502,12 +1680,16 @@ function Devices() {
           temperatureHigh: parseFloat(draftTemp),
           soilMoistureLow: parseFloat(draftSoil),
           autoMode: liveStatus?.autoMode ?? true,
+          overrideDurationSeconds: draftOverrideMinutes * 60,
         }),
       });
       if (updated) {
         setLiveStatus(updated);
         setThresholdTemp(parseFloat(draftTemp));
         setThresholdSoil(parseFloat(draftSoil));
+        setOverrideMinutes(draftOverrideMinutes);
+        window.dispatchEvent(new CustomEvent('flora:liveStatus-updated', { detail: updated }));
+        try { localStorage.setItem('flora:liveStatus', JSON.stringify(updated)); } catch {}
       }
 
       // Lưu lịch bật/tắt đèn chiếu sáng quang hợp
@@ -1659,9 +1841,7 @@ function Devices() {
     {
       id: 'fan',
       actuatorId: 'fan',
-      name: 'Quạt thông gió (IN2)',
-      pin: 'GPIO 33 (IN2)',
-      ratedPowerW: 1.8,
+      name: 'Quạt thông gió',
       kind: 'ACTUATOR',
       on: isFanOn,
       icon: Fan,
@@ -1670,8 +1850,8 @@ function Devices() {
         <span className="dev-rule-text">
           <Fan size={13} /> {liveStatus?.autoMode ? `Tự động khi nhiệt > ${thresholdTemp}°C` : 'Điều khiển thủ công'}
           {Boolean(liveStatus?.fanOverrideSeconds > 0) && (
-            <span className="manual-override-pill" title="Đang can thiệp thủ công (bỏ qua tự động 5 phút)" style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309' }}>
-              {liveStatus.fanOverrideSeconds}s
+            <span className="manual-override-pill" title={`Đang tạm dừng tự động (còn ${liveStatus.fanOverrideSeconds}s)`} style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309', fontWeight: 600 }}>
+              ⏳ {liveStatus.fanOverrideSeconds}s
             </span>
           )}
         </span>
@@ -1681,9 +1861,7 @@ function Devices() {
       id: 'valve',
       alias: 'pump',
       actuatorId: 'valve',
-      name: 'Van tưới nước (IN1)',
-      pin: 'GPIO 25 (IN1)',
-      ratedPowerW: 4.8,
+      name: 'Van tưới nước',
       kind: 'ACTUATOR',
       on: isValveOn,
       icon: Droplets,
@@ -1692,8 +1870,8 @@ function Devices() {
         <span className="dev-rule-text">
           <Droplet size={13} /> {liveStatus?.autoMode ? `Tự động khi đất < ${thresholdSoil}%` : 'Điều khiển thủ công'}
           {Boolean(liveStatus?.valveOverrideSeconds > 0) && (
-            <span className="manual-override-pill" title="Đang can thiệp thủ công (bỏ qua tự động 5 phút)" style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309' }}>
-              {liveStatus.valveOverrideSeconds}s
+            <span className="manual-override-pill" title={`Đang tạm dừng tự động (còn ${liveStatus.valveOverrideSeconds}s)`} style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309', fontWeight: 600 }}>
+              ⏳ {liveStatus.valveOverrideSeconds}s
             </span>
           )}
         </span>
@@ -1703,9 +1881,7 @@ function Devices() {
       id: 'light',
       alias: 'lamp',
       actuatorId: 'light',
-      name: 'Đèn quang hợp (IN3)',
-      pin: 'GPIO 32 (IN3)',
-      ratedPowerW: 9.6,
+      name: 'Đèn quang hợp',
       kind: 'ACTUATOR',
       on: isLightOn,
       icon: Lightbulb,
@@ -1720,8 +1896,6 @@ function Devices() {
       id: item.id,
       actuatorId: item.id,
       name: item.name,
-      pin: item.pin || '',
-      ratedPowerW: item.ratedPowerW || 0,
       kind: 'ACTUATOR',
       on: Boolean(online && item.on),
       icon: Cpu,
@@ -1842,7 +2016,7 @@ function Devices() {
         <article className="dev-summary-card">
           <div className="dev-summary-top"><span>Thiết bị điều khiển</span><span className={`dev-summary-icon ${online ? 'dev-icon-green' : 'dev-icon-blue'}`}><Cpu size={15} /></span></div>
           <div className="dev-summary-main"><strong>{online ? `${actuatorOnCount} / ${actuatorCount}` : `0 / ${actuatorCount}`}</strong><span>{online ? 'đang bật' : 'mất kết nối'}</span></div>
-          <div className="dev-summary-note">{online ? 'Quạt (IN2), Van (IN1), Đèn (IN3)' : 'Ngoại tuyến (Mất kết nối)'}</div>
+          <div className="dev-summary-note">{online ? 'Quạt thông gió, Van tưới nước, Đèn quang hợp' : 'Ngoại tuyến (Mất kết nối)'}</div>
         </article>
         <article className="dev-summary-card">
           <div className="dev-summary-top"><span>Kết nối &amp; Chế độ</span><span className="dev-summary-icon dev-icon-wifi"><Wifi size={15} /></span></div>
@@ -1926,10 +2100,9 @@ function Devices() {
                           <span className={`dev-device-icon ${item.iconTone}`}><Icon size={16} /></span>
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <strong>{item.name}</strong>
-                            {item.pin && (
-                              <small style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                                {item.pin} · {item.ratedPowerW ? `${item.ratedPowerW}W` : ''}
-                                {item.on && item.ratedPowerW ? <span style={{ color: '#16a34a', fontWeight: 600, marginLeft: 4 }}>• Đang chạy ({item.ratedPowerW}W)</span> : null}
+                            {!isSensor && (
+                              <small style={{ fontSize: '11px', color: item.on ? '#16a34a' : '#64748b', marginTop: '2px', fontWeight: item.on ? 600 : 400 }}>
+                                {item.on ? '• Đang bật' : '• Đang tắt'}
                               </small>
                             )}
                           </div>
@@ -2229,6 +2402,73 @@ function Devices() {
                     </div>
                   </div>
                   <small style={{ color: '#7a8980', fontSize: 11 }}>Khi độ ẩm đất &lt; ngưỡng này, hệ thống sẽ tự động mở van tưới cấp nước.</small>
+                </div>
+
+                <div className="threshold-form-group" style={{ marginTop: 14 }}>
+                  <label>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Clock3 size={15} style={{ color: '#2563eb' }} /> Thời gian tạm dừng tự động khi can thiệp thủ công (Khóa tự động):
+                    </span>
+                    <strong style={{ color: '#2563eb' }}>{draftOverrideMinutes} phút ({draftOverrideMinutes * 60}s)</strong>
+                  </label>
+                  <div className="threshold-input-row">
+                    <div className="threshold-stepper">
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-minus"
+                        onClick={() => setDraftOverrideMinutes((prev) => Math.max(1, prev - 1))}
+                        title="Giảm 1 phút"
+                        aria-label="Giảm 1 phút"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <input
+                        type="number"
+                        min="1"
+                        max="60"
+                        className="threshold-val-input stepper-input"
+                        value={draftOverrideMinutes}
+                        onChange={(e) => setDraftOverrideMinutes(Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 1)))}
+                      />
+                      <span className="stepper-unit-badge">phút</span>
+                      <button
+                        type="button"
+                        className="stepper-btn stepper-btn-plus"
+                        onClick={() => setDraftOverrideMinutes((prev) => Math.min(60, prev + 1))}
+                        title="Tăng 1 phút"
+                        aria-label="Tăng 1 phút"
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </div>
+
+                    <div className="threshold-slider-flex">
+                      <input
+                        type="range"
+                        min="1"
+                        max="60"
+                        step="1"
+                        value={draftOverrideMinutes}
+                        onChange={(e) => setDraftOverrideMinutes(parseInt(e.target.value, 10))}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    {[1, 2, 5, 10, 15, 30].map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        className="button button-secondary"
+                        style={{ padding: '3px 8px', fontSize: 11, borderRadius: 5, background: draftOverrideMinutes === mins ? '#dbeafe' : undefined, fontWeight: draftOverrideMinutes === mins ? 600 : 400 }}
+                        onClick={() => setDraftOverrideMinutes(mins)}
+                      >
+                        {mins} phút{mins === 5 ? ' (Mặc định)' : ''}
+                      </button>
+                    ))}
+                  </div>
+                  <small style={{ color: '#7a8980', fontSize: 11, marginTop: 6, display: 'block' }}>
+                    Khi bạn chủ động bật/tắt thiết bị thủ công, hệ thống tự động sẽ tạm dừng trong khoảng thời gian này trước khi khôi phục tự động theo cảm biến.
+                  </small>
                 </div>
 
                 <div className="threshold-form-group" style={{ marginTop: 14 }}>

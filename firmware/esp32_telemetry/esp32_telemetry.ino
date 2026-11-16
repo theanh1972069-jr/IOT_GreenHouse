@@ -67,8 +67,8 @@ const float RATED_VALVE_W = 4.8;
 const float RATED_LIGHT_W = 9.6;
 
 // ============================ 4. BIẾN THỜI GIAN & CAN THIỆP THỦ CÔNG =========
-// Bỏ qua tự động hóa trong 5 phút (300,000 ms) sau khi người dùng can thiệp thủ công
-const uint32_t MANUAL_OVERRIDE_DURATION_MS = 300000UL;
+// Bỏ qua tự động hóa sau khi người dùng can thiệp thủ công (mặc định 5 phút = 300,000 ms, có thể chỉnh động từ Web)
+uint32_t manualOverrideDurationMs = 300000UL;
 uint32_t valveOverrideUntilMs = 0;
 uint32_t fanOverrideUntilMs   = 0;
 uint32_t lightOverrideUntilMs = 0;
@@ -272,31 +272,43 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
 
   bool stateChanged = false;
 
+  // Cập nhật thời gian ngừng tự động (overrideSec) nếu nhận được từ Web/Server
+  int overrideIdx = message.indexOf("\"overrideSec\":");
+  if (overrideIdx >= 0) {
+    int parsedSec = message.substring(overrideIdx + 14).toInt();
+    if (parsedSec > 0) {
+      manualOverrideDurationMs = (uint32_t)parsedSec * 1000UL;
+      Serial.print(F("[CẤU HÌNH] Cập nhật thời gian ngừng tự động (overrideSec): "));
+      Serial.print(parsedSec);
+      Serial.println(F(" giây"));
+    }
+  }
+
   if (message.indexOf("\"valve\":1") >= 0) {
     valveState = true;
-    valveOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+    valveOverrideUntilMs = millis() + manualOverrideDurationMs;
     setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1) [THỦ CÔNG]");
-    Serial.println(F("[THỦ CÔNG] Bật van nước. Tạm dừng tự động hóa van 5 phút. Cảm biến vẫn đo bình thường."));
+    Serial.println(F("[THỦ CÔNG] Bật van nước. Tạm dừng tự động hóa van. Cảm biến vẫn đo bình thường."));
     stateChanged = true;
   } else if (message.indexOf("\"valve\":0") >= 0) {
     valveState = false;
-    valveOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+    valveOverrideUntilMs = millis() + manualOverrideDurationMs;
     setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1) [THỦ CÔNG]");
-    Serial.println(F("[THỦ CÔNG] Tắt van nước. Tạm dừng tự động hóa van 5 phút. Cảm biến vẫn đo bình thường."));
+    Serial.println(F("[THỦ CÔNG] Tắt van nước. Tạm dừng tự động hóa van. Cảm biến vẫn đo bình thường."));
     stateChanged = true;
   }
 
   if (message.indexOf("\"fan\":1") >= 0) {
     fanState = true;
-    fanOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+    fanOverrideUntilMs = millis() + manualOverrideDurationMs;
     setRelay(RELAY_FAN_PIN, true, "Quạt gió (IN2) [THỦ CÔNG]");
-    Serial.println(F("[THỦ CÔNG] Bật quạt gió. Tạm dừng tự động hóa quạt 5 phút. Cảm biến vẫn đo bình thường."));
+    Serial.println(F("[THỦ CÔNG] Bật quạt gió. Tạm dừng tự động hóa quạt. Cảm biến vẫn đo bình thường."));
     stateChanged = true;
   } else if (message.indexOf("\"fan\":0") >= 0) {
     fanState = false;
-    fanOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+    fanOverrideUntilMs = millis() + manualOverrideDurationMs;
     setRelay(RELAY_FAN_PIN, false, "Quạt gió (IN2) [THỦ CÔNG]");
-    Serial.println(F("[THỦ CÔNG] Tắt quạt gió. Tạm dừng tự động hóa quạt 5 phút. Cảm biến vẫn đo bình thường."));
+    Serial.println(F("[THỦ CÔNG] Tắt quạt gió. Tạm dừng tự động hóa quạt. Cảm biến vẫn đo bình thường."));
     stateChanged = true;
   }
 
@@ -570,27 +582,27 @@ void handleSerialCommands() {
       testRelayPins();
     } else if (cmdUpper == "LIGHT ON") {
       lightState = true;
-      lightOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      lightOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3) [SERIAL]");
     } else if (cmdUpper == "LIGHT OFF") {
       lightState = false;
-      lightOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      lightOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [SERIAL]");
     } else if (cmdUpper == "FAN ON") {
       fanState = true;
-      fanOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      fanOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_FAN_PIN, true, "Quạt gió (IN2) [SERIAL]");
     } else if (cmdUpper == "FAN OFF") {
       fanState = false;
-      fanOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      fanOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_FAN_PIN, false, "Quạt gió (IN2) [SERIAL]");
     } else if (cmdUpper == "VALVE ON") {
       valveState = true;
-      valveOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      valveOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_VALVE_PIN, true, "Van nước (IN1) [SERIAL]");
     } else if (cmdUpper == "VALVE OFF") {
       valveState = false;
-      valveOverrideUntilMs = millis() + MANUAL_OVERRIDE_DURATION_MS;
+      valveOverrideUntilMs = millis() + manualOverrideDurationMs;
       setRelay(RELAY_VALVE_PIN, false, "Van nước (IN1) [SERIAL]");
     } else if (cmdUpper == "INVERT") {
       isRelayActiveLow = !isRelayActiveLow;

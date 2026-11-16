@@ -91,6 +91,7 @@ public class DeviceControlRestController {
                 request.soilMoistureLow(),
                 request.lightTempLow(),
                 request.autoMode(),
+                request.overrideDurationSeconds(),
                 actor,
                 httpRequest
         );
@@ -140,8 +141,8 @@ public class DeviceControlRestController {
         return ResponseEntity.ok(status);
     }
 
-    public record ControlRequest(String actuator, Boolean state, Boolean autoMode) {}
-    public record ThresholdsRequest(BigDecimal temperatureHigh, BigDecimal soilMoistureLow, BigDecimal lightTempLow, Boolean autoMode) {}
+    public record ControlRequest(String actuator, Boolean state, Boolean autoMode, Integer overrideDurationSeconds) {}
+    public record ThresholdsRequest(BigDecimal temperatureHigh, BigDecimal soilMoistureLow, BigDecimal lightTempLow, Boolean autoMode, Integer overrideDurationSeconds) {}
     public record QuickActionRequest(String action) {}
     public record ApiError(String message) {}
 }
