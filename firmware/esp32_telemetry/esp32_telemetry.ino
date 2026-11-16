@@ -60,7 +60,7 @@
 Preferences preferences;
 
 // Giá trị mặc định (sẽ được ghi đè khi bạn nhập trên Web Portal)
-char mqtt_server[40] = "192.168.1.226";
+char mqtt_server[40] = "broker.emqx.io";
 char mqtt_port_str[6] = "1883";
 char device_id[32]    = "esp32-01";
 
@@ -726,12 +726,12 @@ void setup() {
     WiFi.disconnect(true, true);
   }
 
-  String savedServer = preferences.getString("mqtt_server", "192.168.1.226");
-  // Tự động sửa lại nếu Flash đang lưu IP cũ .120 hoặc .220
-  if (savedServer == "192.168.1.120" || savedServer == "192.168.1.220" || savedServer.length() == 0) {
-    savedServer = "192.168.1.226";
-    preferences.putString("mqtt_server", "192.168.1.226");
-    Serial.println(F("[CẤU HÌNH] Đã tự động cập nhật IP MQTT Server thành: 192.168.1.226"));
+  String savedServer = preferences.getString("mqtt_server", "broker.emqx.io");
+  // Tự động chuyển sang Cloud broker nếu Flash đang lưu IP LAN nội bộ cũ (192.168.x.x) hoặc rỗng
+  if (savedServer.startsWith("192.168.") || savedServer == "localhost" || savedServer.length() == 0) {
+    savedServer = "broker.emqx.io";
+    preferences.putString("mqtt_server", "broker.emqx.io");
+    Serial.println(F("[CẤU HÌNH] Đã tự động cập nhật MQTT Server Cloud thành: broker.emqx.io"));
   }
   String savedPort   = preferences.getString("mqtt_port", "1883");
   String savedDevId  = preferences.getString("device_id", "esp32-01");
@@ -784,7 +784,7 @@ void setup() {
     wm.setConfigPortalTimeout(180); // Chờ 180 giây (3 phút) để bạn kịp kết nối cấu hình
     wm.setConnectTimeout(30);
 
-    WiFiManagerParameter custom_mqtt_server("server", "IP Server Máy Tính (MQTT)", mqtt_server, 40);
+    WiFiManagerParameter custom_mqtt_server("server", "MQTT Server (Domain / IP)", mqtt_server, 40);
     WiFiManagerParameter custom_mqtt_port("port", "Cổng MQTT (mặc định 1883)", mqtt_port_str, 6);
     WiFiManagerParameter custom_device_id("devid", "Device ID (trùng với Web)", device_id, 32);
 
