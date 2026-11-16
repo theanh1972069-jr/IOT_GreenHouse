@@ -815,9 +815,16 @@ void setup() {
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
 
-  // Đăng ký sự kiện Wi-Fi: Khi mất mạng, đồng hồ RTC nội tại của ESP32 vẫn tiếp tục chạy
+  // Đăng ký sự kiện Wi-Fi: Khi mất mạng, LẬP TỨC chuyển sang chế độ TỰ ĐỘNG để bảo vệ cây trồng
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-    Serial.println(F("\n[WI-FI] Bị ngắt kết nối! Đồng hồ nội tại ESP32 vẫn chạy và tự động điều khiển đèn/bơm ngầm bình thường..."));
+    Serial.println(F("\n[WI-FI] Bị ngắt kết nối! Lập tức chuyển sang chế độ TỰ ĐỘNG để bảo vệ cây trồng..."));
+    if (!autoControlMode) {
+      autoControlMode = true;
+      preferences.begin("greenhouse", false);
+      preferences.putBool("auto_mode", true);
+      preferences.end();
+      Serial.println(F("[MẤT MẠNG] Đã tự động kích hoạt và lưu chế độ TỰ ĐỘNG (Auto) vào Flash NVS!"));
+    }
     WiFi.reconnect();
   }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
@@ -910,6 +917,16 @@ void setup() {
 void loop() {
   // 0. Luôn lắng nghe lệnh kiểm tra chân trực tiếp từ Serial Monitor (không phụ thuộc Wi-Fi)
   handleSerialCommands();
+
+  // Kiểm tra mất mạng: Khi mất Wi-Fi hoặc mất MQTT -> LẬP TỨC chuyển ngay sang chế độ TỰ ĐỘNG để bảo vệ cây trồng
+  bool isOnline = (WiFi.status() == WL_CONNECTED) && mqtt.connected();
+  if (!isOnline && !autoControlMode) {
+    autoControlMode = true;
+    preferences.begin("greenhouse", false);
+    preferences.putBool("auto_mode", true);
+    preferences.end();
+    Serial.println(F("\n[SỰ CỐ MẤT MẠNG] Phát hiện mất kết nối! Lập tức chuyển sang chế độ TỰ ĐỘNG (Auto) để bảo vệ nhà kính!"));
+  }
 
   // 1. Kiểm tra nút BOOT: Chỉ reset khi người dùng NHẤN GIỮ LIÊN TỤC >= 3 GIÂY (chống nhiễu điện)
   if (digitalRead(TRIGGER_PIN) == LOW) {

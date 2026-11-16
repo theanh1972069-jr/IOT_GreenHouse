@@ -166,7 +166,16 @@ public class DeviceLiveService {
                     }
 
                     if (root.has("auto")) {
-                        status.setAutoMode(root.get("auto").asInt(1) == 1);
+                        boolean autoMode = root.get("auto").asInt(1) == 1;
+                        status.setAutoMode(autoMode);
+                        deviceRepository.findByDeviceId(deviceId).ifPresent(device -> {
+                            configurationRepository.findByDeviceId(device.getId()).ifPresent(cfg -> {
+                                if (cfg.getAutoWatering() == null || cfg.getAutoWatering() != autoMode) {
+                                    cfg.setAutoWatering(autoMode);
+                                    configurationRepository.save(cfg);
+                                }
+                            });
+                        });
                     }
                     if (root.has("tempThreshold")) {
                         status.setTempThreshold(root.get("tempThreshold").asDouble(status.getTempThreshold()));
