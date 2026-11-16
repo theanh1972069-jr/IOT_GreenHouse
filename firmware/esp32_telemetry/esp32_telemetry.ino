@@ -3,6 +3,7 @@
 #include <DHT.h>
 #include <WiFiManager.h>
 #include <Preferences.h>
+#include <time.h>
 
 // ============================ 1. NÚT RESET CẤU HÌNH ==========================
 #define TRIGGER_PIN  0     // Nút BOOT trên ESP32 (GPIO 0)
@@ -61,6 +62,12 @@ int   soilThreshold         = 30;   // Bật van khi độ ẩm đất < soilThr
 int   soilThresholdOff      = 60;   // Tắt van khi độ ẩm đất >= soilThresholdOff
 float lightTempThreshold    = 20.0; // Bật đèn khi nhiệt độ < lightTempThreshold (mặc định < 20°C)
 float lightTempThresholdOff = 22.0; // Tắt đèn khi nhiệt độ >= lightTempThresholdOff (đủ ấm)
+
+// Khung giờ bật/tắt đèn quang hợp tự động (mặc định 19:00 -> 07:00, lưu vào Flash NVS)
+int lightOnHour  = 19;
+int lightOnMin   = 0;
+int lightOffHour = 7;
+int lightOffMin  = 0;
 
 const float RATED_FAN_W   = 1.8;
 const float RATED_VALVE_W = 4.8;
@@ -371,6 +378,42 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     }
   }
 
+  // Nhận giờ bật đèn từ Web (VD: "lightOn":"19:00")
+  int lightOnIdx = message.indexOf("\"lightOn\":\"");
+  if (lightOnIdx >= 0) {
+    String onStr = message.substring(lightOnIdx + 11, lightOnIdx + 16);
+    int colon = onStr.indexOf(':');
+    if (colon > 0) {
+      lightOnHour = onStr.substring(0, colon).toInt();
+      lightOnMin  = onStr.substring(colon + 1).toInt();
+      preferences.begin("greenhouse", false);
+      preferences.putInt("light_on_h", lightOnHour);
+      preferences.putInt("light_on_m", lightOnMin);
+      preferences.end();
+      Serial.print(F("[LỊCH ĐÈN FLASH] Đã lưu giờ bật đèn: "));
+      Serial.print(lightOnHour); Serial.print(F(":")); Serial.println(lightOnMin);
+      stateChanged = true;
+    }
+  }
+
+  // Nhận giờ tắt đèn từ Web (VD: "lightOff":"07:00")
+  int lightOffIdx = message.indexOf("\"lightOff\":\"");
+  if (lightOffIdx >= 0) {
+    String offStr = message.substring(lightOffIdx + 12, lightOffIdx + 17);
+    int colon = offStr.indexOf(':');
+    if (colon > 0) {
+      lightOffHour = offStr.substring(0, colon).toInt();
+      lightOffMin  = offStr.substring(colon + 1).toInt();
+      preferences.begin("greenhouse", false);
+      preferences.putInt("light_off_h", lightOffHour);
+      preferences.putInt("light_off_m", lightOffMin);
+      preferences.end();
+      Serial.print(F("[LỊCH ĐÈN FLASH] Đã lưu giờ tắt đèn: "));
+      Serial.print(lightOffHour); Serial.print(F(":")); Serial.println(lightOffMin);
+      stateChanged = true;
+    }
+  }
+
   // Phản hồi gửi cập nhật telemetry ngay lập tức để màn hình web cập nhật trạng thái
   if (stateChanged && mqtt.connected()) {
     publishTelemetry();
@@ -452,8 +495,30 @@ void measureSensorsAndAutoControl() {
       setRelay(RELAY_FAN_PIN, false, "Quạt làm mát (IN2) [TỰ ĐỘNG - Mát]");
     }
 
-    // Đèn quang hợp (IN3) được điều khiển theo Lịch chiếu sáng (mặc định 19:00 - 07:00) từ Server
-    // hoặc bật/tắt thủ công qua Web, không tự động can thiệp theo nhiệt độ.
+    // Tự động bật/tắt đèn quang hợp theo khung giờ (bật trong suốt khoảng từ giờ bật đến giờ tắt)
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo, 50)) {
+      int curMin = timeinfo.tm_hour * 60 + timeinfo.tm_min;
+      int onMin  = lightOnHour * 60 + lightOnMin;
+      int offMin = lightOffHour * 60 + lightOffMin;
+
+      bool shouldLightOn = false;
+      if (onMin < offMin) {
+        // Khung giờ ban ngày (vd: 06:00 -> 18:00)
+        shouldLightOn = (curMin >= onMin && curMin < offMin);
+      } else if (onMin > offMin) {
+        // Khung giờ qua đêm (vd: 19:00 -> 07:00: bật khi curMin >= 19:00 HOẶC curMin < 07:00)
+        shouldLightOn = (curMin >= onMin || curMin < offMin);
+      }
+
+      if (shouldLightOn && !lightState) {
+        lightState = true;
+        setRelay(RELAY_LIGHT_PIN, true, "Đèn quang hợp (IN3) [TỰ ĐỘNG - Trong khung giờ]");
+      } else if (!shouldLightOn && lightState) {
+        lightState = false;
+        setRelay(RELAY_LIGHT_PIN, false, "Đèn quang hợp (IN3) [TỰ ĐỘNG - Ngoài khung giờ]");
+      }
+    }
   }
 
   // 4. In ra Serial Monitor đồng bộ cùng nhịp gửi
@@ -664,10 +729,20 @@ void setup() {
   lightTempThreshold    = preferences.getFloat("light_thresh", 20.0f);
   lightTempThresholdOff = min(45.0f, lightTempThreshold + 2.0f);
 
+  lightOnHour           = preferences.getInt("light_on_h", 19);
+  lightOnMin            = preferences.getInt("light_on_m", 0);
+  lightOffHour          = preferences.getInt("light_off_h", 7);
+  lightOffMin           = preferences.getInt("light_off_m", 0);
+
   Serial.println(F("[CẤU HÌNH NGƯỠNG TỪ FLASH NVS]:"));
   Serial.print(F("  - Chế độ tự động  : ")); Serial.println(autoControlMode ? F("BẬT (Auto)") : F("TẮT (Thủ công)"));
   Serial.print(F("  - Ngưỡng nhiệt độ : > ")); Serial.print(tempThreshold, 1); Serial.println(F(" °C"));
   Serial.print(F("  - Ngưỡng độ ẩm đất: < ")); Serial.print(soilThreshold); Serial.println(F(" %"));
+  Serial.print(F("  - Lịch bật đèn    : ")); Serial.print(lightOnHour); Serial.print(F(":")); Serial.print(lightOnMin);
+  Serial.print(F(" -> ")); Serial.print(lightOffHour); Serial.print(F(":")); Serial.println(lightOffMin);
+
+  // Cấu hình đồng bộ thời gian thực NTP (máy chủ Việt Nam, GMT+7)
+  configTime(7 * 3600, 0, "pool.ntp.org", "time.google.com");
 
   // Bật chế độ tự động ghi nhớ và tự động kết nối lại Wi-Fi ngầm của phần cứng ESP32
   WiFi.mode(WIFI_STA);

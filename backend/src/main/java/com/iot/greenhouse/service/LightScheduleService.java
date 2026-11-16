@@ -26,16 +26,19 @@ public class LightScheduleService {
     private final MqttPublisherService mqttPublisherService;
     private final DeviceLiveService deviceLiveService;
 
+    public static final java.time.ZoneId VIETNAM_ZONE = java.time.ZoneId.of("Asia/Ho_Chi_Minh");
+
     /**
-     * Chạy định kỳ mỗi phút.
-     * So sánh thời gian hiện tại với khoảng bật/tắt (hỗ trợ cả qua đêm):
-     * Nếu thời gian hiện tại nằm trong khoảng [onTime, offTime) thì bật đèn,
-     * ngược lại ngoài khoảng thì tắt đèn.
+     * Chạy định kỳ mỗi 5 giây.
+     * So sánh thời gian hiện tại (giờ Việt Nam GMT+7) với khung giờ bật/tắt (hỗ trợ cả qua đêm):
+     * Nếu thời gian hiện tại nằm trong khoảng [onTime, offTime) thì đảm bảo đèn BẬT,
+     * ngoài khoảng này thì tắt đèn.
+     * Ví dụ: Đặt 19:00 -> 07:00, dù mở lúc 20:00 (8h tối) hệ thống vẫn tự động bật đèn ngay lập tức nếu chưa bật.
      */
-    @Scheduled(cron = "0 * * * * *")
+    @Scheduled(fixedDelay = 5000)
     @Transactional
     public void evaluateSchedules() {
-        LocalTime now = LocalTime.now().withSecond(0).withNano(0);
+        LocalTime now = LocalTime.now(VIETNAM_ZONE).withSecond(0).withNano(0);
         List<LightSchedule> schedules = lightScheduleRepository.findByEnabledTrue();
 
         for (LightSchedule schedule : schedules) {
@@ -48,7 +51,7 @@ public class LightScheduleService {
             boolean shouldBeOn = isTimeInWindow(now, onTime, offTime);
             var liveStatus = deviceLiveService.getOrCreateLiveStatus(deviceId);
 
-            // Khi ở chế độ tự động, kiểm tra và đồng bộ trạng thái đèn
+            // Khi ở chế độ tự động, kiểm tra và duy trì trạng thái đèn trong suốt khung giờ
             if (liveStatus != null && !liveStatus.isAutoMode()) {
                 continue; // Trong chế độ thủ công, không can thiệp đè lên người dùng
             }
@@ -62,12 +65,28 @@ public class LightScheduleService {
                         .orElse(false);
             }
 
+            // Nếu trạng thái hiện tại chưa khớp với khung giờ (ví dụ mở máy lúc 8h tối mà đèn chưa bật) -> BẬT NGAY!
             if (shouldBeOn != currentLightState) {
-                log.info("[LightSchedule] Thiết bị {}: Giờ hiện tại {} -> {} đèn (bật: {}, tắt: {})",
+                log.info("[LightSchedule] Thiết bị {}: Giờ VN hiện tại {} -> {} đèn (khung giờ {} -> {})",
                         deviceId, now, shouldBeOn ? "BẬT" : "TẮT", onTime, offTime);
                 mqttPublisherService.publish(topic, String.format("{\"light\":%d}", shouldBeOn ? 1 : 0));
                 updateLightState(deviceId, shouldBeOn);
             }
+        }
+    }
+
+    public void syncDeviceLightScheduleToMqtt(String deviceId) {
+        try {
+            var schedules = lightScheduleRepository.findByDevice_DeviceIdOrderByTurnOnTimeAsc(deviceId);
+            if (!schedules.isEmpty()) {
+                var active = schedules.stream().filter(LightSchedule::getEnabled).findFirst().orElse(schedules.get(0));
+                String topic = "greenhouse/" + deviceId + "/control";
+                String payload = String.format("{\"lightOn\":\"%s\",\"lightOff\":\"%s\"}",
+                        active.getTurnOnTime().toString(), active.getTurnOffTime().toString());
+                mqttPublisherService.publish(topic, payload);
+            }
+        } catch (Exception e) {
+            log.warn("Could not sync light schedule to MQTT for {}: {}", deviceId, e.getMessage());
         }
     }
 

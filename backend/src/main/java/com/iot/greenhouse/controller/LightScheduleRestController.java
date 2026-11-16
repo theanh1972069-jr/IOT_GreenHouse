@@ -86,7 +86,10 @@ public class LightScheduleRestController {
                             .build();
 
                     LightSchedule saved = lightScheduleRepository.save(schedule);
-                    try { lightScheduleService.evaluateSchedules(); } catch (Exception ignored) {}
+                    try {
+                        lightScheduleService.syncDeviceLightScheduleToMqtt(deviceId);
+                        lightScheduleService.evaluateSchedules();
+                    } catch (Exception ignored) {}
                     auditLogService.record(actor, httpRequest, "LIGHT_SCHEDULE_CREATE", "Device", deviceId,
                             Map.of("label", saved.getLabel(),
                                     "turnOnTime", saved.getTurnOnTime().toString(),
@@ -122,7 +125,10 @@ public class LightScheduleRestController {
                     schedule.setUpdatedBy(actor);
 
                     LightSchedule saved = lightScheduleRepository.save(schedule);
-                    try { lightScheduleService.evaluateSchedules(); } catch (Exception ignored) {}
+                    try {
+                        lightScheduleService.syncDeviceLightScheduleToMqtt(deviceId);
+                        lightScheduleService.evaluateSchedules();
+                    } catch (Exception ignored) {}
                     auditLogService.record(actor, httpRequest, "LIGHT_SCHEDULE_UPDATE", "Device", deviceId,
                             Map.of("id", id,
                                     "label", saved.getLabel(),
